@@ -17,6 +17,7 @@
 #include <mach/msm_iomap.h>
 //#include <mach/perflock.h>
 #include "sharp/sh_boot_manager.h"
+#include "linux/vmalloc.h" 
 
 #define S5K8AAYX_SENSOR_NAME "s5k8aayx"
 DEFINE_MSM_MUTEX(s5k8aayx_mut);
@@ -2975,13 +2976,25 @@ int32_t s5k8aayx_i2c_write(struct msm_sensor_ctrl_t *s_ctrl,
 	struct msm_camera_i2c_seq_reg_array *pos_reg_sec_setting = NULL;
 	int i;
 	int cur_size, array_size;
+	int kz_state = 0;
 
 	reg_sec_setting = kzalloc(size *
 		(sizeof(struct msm_camera_i2c_seq_reg_array)),
 		GFP_KERNEL);
 	if (!reg_sec_setting) {
+#if 0
 		pr_err("%s:%d failed\n", __func__, __LINE__);
 		return -EFAULT;
+#else
+		pr_err("%s:%d kzalloc failed\n", __func__, __LINE__);
+		kz_state = -1;
+		reg_sec_setting = vmalloc(size *(sizeof(struct msm_camera_i2c_seq_reg_array)));
+		if(!reg_sec_setting) {
+			pr_err("%s:%d vmalloc also failed\n", __func__, __LINE__);
+			return -EFAULT;
+		}
+		memset(reg_sec_setting, 0, size *(sizeof(struct msm_camera_i2c_seq_reg_array)));
+#endif
 	}
 
 	if(data_type == MSM_CAMERA_I2C_WORD_DATA){
@@ -3054,7 +3067,12 @@ int32_t s5k8aayx_i2c_write(struct msm_sensor_ctrl_t *s_ctrl,
 		CDBG("%s rc = %d", __func__, (int)rc);
 	}
 	
-	kfree(reg_sec_setting);
+	if( kz_state != 0 ){
+		vfree(reg_sec_setting);
+	}
+	else{
+		kfree(reg_sec_setting);
+	}
 
 	CDBG("%s end", __func__);
 	

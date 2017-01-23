@@ -114,6 +114,7 @@ static int shub_stop_ped_onoff(int onoff);
 static DEFINE_MUTEX(shub_exif_lock);
 static DEFINE_MUTEX(shub_mutex_if);  // SHMDS_HUB_0207_01 add
 static DEFINE_MUTEX(shub_mutex_req); // SHMDS_HUB_0207_01 add
+static DEFINE_MUTEX(shub_mutex_vibe); // SHMDS_HUB_0208_01 add
 
 enum{
     SHUB_COND_STOP = 0,
@@ -183,6 +184,39 @@ static int shub_already_md_flg = 0;
 static void shub_disable_internal_mot_det(void);        // SHMDS_HUB_0206_05 add
 /* SHMDS_HUB_0202_01 add E */
 
+// SHMDS_HUB_0208_01 add S
+static int shub_not_notify_vibe_flg = 0;
+static uint64_t shub_vibe_endtime_ns = 0;
+static uint64_t shub_get_time_ns(void)
+{
+    struct timespec ts;
+    ktime_get_ts(&ts);
+    monotonic_to_bootbased(&ts);
+    return timespec_to_ns(&ts);
+}
+
+static int shub_vibe_notify_check(int kind)
+{
+    int check_ret = 0;
+    mutex_lock(&shub_mutex_vibe);
+    if(shub_not_notify_vibe_flg) {
+        DBG_EXIF_DATA( "det_kind(%d) : not notify return.(vibe) already_md_flg=%d\n", kind, shub_get_already_md_flg());
+        check_ret = 1;
+    }
+    else if(shub_vibe_endtime_ns != 0) {
+        uint64_t sub_time = shub_get_time_ns() - shub_vibe_endtime_ns;
+        if(sub_time < 1000000000) {
+            DBG_EXIF_DATA( "det_kind(%d) : not notify return.(vibe under 1s) already_md_flg=%d sub_time=%lld\n", kind, shub_get_already_md_flg(), sub_time);
+            check_ret = 1;
+        }
+        else {
+            shub_vibe_endtime_ns = 0;
+        }
+    }
+    mutex_unlock(&shub_mutex_vibe);
+    return check_ret;
+}
+// SHMDS_HUB_0208_01 add E
 
 /* SHMDS_HUB_0202_01 add S */
 static void shub_get_center_data(signed short *c_data)
@@ -795,6 +829,11 @@ static void shub_input_report_exif_stop_tm(int32_t data)
 
 void shub_input_report_exif_grav_det(bool send)
 {
+// SHMDS_HUB_0208_01 add S
+    if(shub_vibe_notify_check(1)) {
+        return ;
+    }
+// SHMDS_HUB_0208_01 add E
     shub_exif_notify_info |= 0x08;
     DBG_EXIF_DATA("grav_det : notify=0x%x send=%d(%d)\n", shub_exif_notify_info, send, shub_exif_notify_cont);
     if(send) {
@@ -838,6 +877,12 @@ void shub_input_report_exif_mot_det(unsigned char det_info)
             shub_exif_notify_info |= 0x10;
         }
     }
+// SHMDS_HUB_0208_01 add S
+    if(shub_vibe_notify_check(0)) {
+        shub_exif_notify_info &= ~0x30;
+        return ;
+    }
+// SHMDS_HUB_0208_01 add E
     if(shub_exif_notify_info != 0) {
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, shub_exif_notify_info);
@@ -1161,6 +1206,12 @@ void shub_suspend_exif(void)
     }
     shub_check_suspend_restart = 0;             	// SHMDS_HUB_0206_06 add
 /* SHMDS_HUB_0207_01 add E */
+// SHMDS_HUB_0208_01 add S
+    mutex_lock(&shub_mutex_vibe);
+    shub_vibe_endtime_ns = 0;
+    shub_not_notify_vibe_flg = 0;
+    mutex_unlock(&shub_mutex_vibe);
+// SHMDS_HUB_0208_01 add E
 }
 
 void shub_resume_exif(void)
@@ -1280,6 +1331,14 @@ int shub_api_stop_pedometer_func(int type)
     int ret = 0;
     int work_call = 0;
     DBG_EXIF_IO( "%s type=%d check_ped_type=%02x\n", __func__, type, shub_check_ped_type);
+// SHMDS_HUB_0208_01 add S
+    if(type == SHUB_STOP_PED_TYPE_VIB) {
+        mutex_lock(&shub_mutex_vibe);
+        shub_vibe_endtime_ns = 0;
+        shub_not_notify_vibe_flg = 1;
+        mutex_unlock(&shub_mutex_vibe);
+    }
+// SHMDS_HUB_0208_01 add E
     mutex_lock(&shub_mutex_if);
     if(shub_check_ped_type == 0) {
         if(shub_enable_ped_exif_flg == 0) {
@@ -1314,6 +1373,16 @@ int shub_api_restart_pedometer_func(int type)
     int ret = 0;
     int timer_call = 1;
     DBG_EXIF_IO( "%s type=%d check_ped_type=%02x\n", __func__, type, shub_check_ped_type);
+// SHMDS_HUB_0208_01 add S
+    if(type == SHUB_STOP_PED_TYPE_VIB) {
+        mutex_lock(&shub_mutex_vibe);
+        if(shub_not_notify_vibe_flg) {
+            shub_vibe_endtime_ns = shub_get_time_ns();
+            shub_not_notify_vibe_flg = 0;
+        }
+        mutex_unlock(&shub_mutex_vibe);
+    }
+// SHMDS_HUB_0208_01 add E
     mutex_lock(&shub_mutex_if);
     switch(type) {
     case SHUB_STOP_PED_TYPE_VIB:
@@ -1521,6 +1590,11 @@ static int32_t __init shub_exif_init(void)
         memset(shub_detect_buf[i], 0, shub_buf_size * sizeof(signed short));
     }
 /* SHMDS_HUB_0202_01 add E */
+
+// SHMDS_HUB_0208_01 add S
+    shub_vibe_endtime_ns = 0;
+    shub_not_notify_vibe_flg = 0;
+// SHMDS_HUB_0208_01 add E
 
     return 0;
 

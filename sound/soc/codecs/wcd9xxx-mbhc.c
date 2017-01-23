@@ -45,6 +45,12 @@
 #if defined( CONFIG_MACH_LYNX_DL60 ) || defined( CONFIG_MACH_LYNX_DL63 )
 #define CONFIG_SMARTPHONE_PIERCE 1
 #endif
+#if defined( CONFIG_MACH_LYNX_DL60 )
+#define CONFIG_SMARTPHONE_PIERCE_DL60 1
+#endif /* CONFIG_MACH_LYNX_DL60 */
+#if defined( CONFIG_MACH_LYNX_DL63 )
+#define CONFIG_SMARTPHONE_PIERCE_DL63 1
+#endif /* CONFIG_MACH_LYNX_DL63 */
 #endif
 
 #if defined( CONFIG_SMARTPHONE_PIERCE )
@@ -52,6 +58,13 @@
 
 #define WCD9XXX_CS_MEAS_PIERCE_RANGE_LOW_MV (150)
 #define WCD9XXX_CS_MEAS_PIERCE_RANGE_HIGH_MV (220)
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+#define WCD9XXX_CS_MEAS_PIERCE_INVALID_LOW_IMPEDANCE (4500)
+#define WCD9XXX_CS_MEAS_PIERCE_INVALID_HIGH_IMPEDANCE (1000*1000)
+#define WCD9XXX_CS_MEAS_PIERCE_DETECT_COUNTER (2)
+#define WCD9XXX_CS_MEAS_PIERCE_DETECT_WAIT (20)
+#define WCD9XXX_CS_MEAS_PIERCE_DETECT_IMPEDANCE_MV (350)
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 
 static bool insert_smartphone_pierce = false;
 static bool already_called_insert_sp_pierce = false;
@@ -934,6 +947,11 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 		 * Headphone to headset shouldn't report headphone
 		 * removal.
 		 */
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+		if( jack_type != 0 ){
+			report_remove_smartphone_pierce( mbhc );
+		}
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 #ifdef CONFIG_SH_AUDIO_DRIVER /*09-051*//*09-079*/
 		if (((jack_type == SND_JACK_HEADSET) || (jack_type == SND_JACK_LINEOUT) || (jack_type == SND_JACK_UNSUPPORTED)) &&
 		    (mbhc->hph_status && mbhc->hph_status != jack_type)) {
@@ -1652,6 +1670,25 @@ wcd9xxx_cs_find_plug_type(struct wcd9xxx_mbhc *mbhc,
         insert_smartphone_pierce = false;
     }
 #endif /* CONFIG_SMARTPHONE_PIERCE */
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+	if( type == PLUG_TYPE_HEADSET &&
+		dt->_vdces > WCD9XXX_CS_MEAS_PIERCE_DETECT_IMPEDANCE_MV ){
+		for( i = 0; i < WCD9XXX_CS_MEAS_PIERCE_DETECT_COUNTER; ++i ){
+			if( i != 0 ){
+				msleep( WCD9XXX_CS_MEAS_PIERCE_DETECT_WAIT );
+			}
+			wcd9xxx_detect_impedance( mbhc, &mbhc->zl, &mbhc->zr );
+			if( !((WCD9XXX_CS_MEAS_PIERCE_INVALID_LOW_IMPEDANCE <= mbhc->zr &&
+				   mbhc->zr < WCD9XXX_CS_MEAS_PIERCE_INVALID_HIGH_IMPEDANCE) ||
+				  (WCD9XXX_CS_MEAS_PIERCE_INVALID_LOW_IMPEDANCE <= mbhc->zl &&
+				   mbhc->zl < WCD9XXX_CS_MEAS_PIERCE_INVALID_HIGH_IMPEDANCE)) ){
+				pr_debug( "%s: Invalid, detect high impedance\n", __func__ );
+				type = PLUG_TYPE_INVALID;
+				break;
+			}
+		}
+	}
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 
 exit:
 	pr_debug("%s: Plug type %d detected\n", __func__, type);
@@ -3260,9 +3297,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 			if (!mbhc->mbhc_cfg->detect_extn_cable &&
 			    retry == NUM_ATTEMPTS_TO_REPORT &&
 			    mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                 report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 #ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
 				WCD9XXX_BCL_LOCK(mbhc->resmgr);
 #endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
@@ -3275,6 +3312,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 #if defined( CONFIG_SMARTPHONE_PIERCE )
             else{
                 report_insert_smartphone_pierce( mbhc );
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+				if( already_called_insert_sp_pierce ) break;
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
             }
 #endif /* CONFIG_SMARTPHONE_PIERCE */
 		} else if (plug_type == PLUG_TYPE_HEADPHONE) {
@@ -3286,19 +3326,19 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 				pr_debug("Good headphone detected, continue polling\n");
 				if (mbhc->mbhc_cfg->detect_extn_cable) {
 					if (mbhc->current_plug != plug_type)
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                     {
                         report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 						wcd9xxx_report_plug(mbhc, 1,
 							    SND_JACK_HEADPHONE);
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                     }
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 				} else if (mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                     report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 					wcd9xxx_report_plug(mbhc, 1,
 							    SND_JACK_HEADPHONE);
 				}
@@ -3313,19 +3353,19 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 #endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 			if (mbhc->mbhc_cfg->detect_extn_cable) {
 				if (mbhc->current_plug != plug_type)
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                 {
                     report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 					wcd9xxx_report_plug(mbhc, 1,
 							    SND_JACK_HEADPHONE);
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                 }
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 			} else if (mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                 report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 				wcd9xxx_report_plug(mbhc, 1,
 						    SND_JACK_HEADPHONE);
 			}
@@ -3341,19 +3381,19 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 #endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 			if (mbhc->mbhc_cfg->detect_extn_cable) {
 				if (mbhc->current_plug != plug_type)
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                 {
                     report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 					wcd9xxx_report_plug(mbhc, 1,
 							    SND_JACK_LINEOUT);
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                 }
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 			} else if (mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
                 report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 				wcd9xxx_report_plug(mbhc, 1,
 						    SND_JACK_HEADPHONE);
 			}
@@ -3394,9 +3434,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 			/*
 			 * The valid plug also includes PLUG_TYPE_GND_MIC_SWAP
 			 */
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
             report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 			wcd9xxx_find_plug_and_report(mbhc, plug_type);
 			WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
 			pr_debug("Attempt %d found correct plug %d\n", retry,
@@ -3414,9 +3454,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 		wcd9xxx_find_plug_and_report(mbhc, plug_type);
 		highhph = true;
 		WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
         report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE */
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 	}
 
 	if (!correction && current_source_enable)

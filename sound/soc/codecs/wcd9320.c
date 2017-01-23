@@ -2823,7 +2823,9 @@ static int taiko_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 	char *internal3_text = "Internal3";
 	enum wcd9xxx_notify_event e_post_off, e_pre_on, e_post_on;
 #ifdef CONFIG_SH_AUDIO_DRIVER /* 07-040 */
+#if !defined( CONFIG_MACH_LYNX_DL63 )
 	struct wcd9xxx_mbhc mbhc = taiko->mbhc;
+#endif
 #endif /* CONFIG_SH_AUDIO_DRIVER *//* 07-040 */
 
 	pr_debug("%s: w->name %s event %d\n", __func__, w->name, event);
@@ -2876,9 +2878,11 @@ static int taiko_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 			snd_soc_update_bits(codec, micb_int_reg, 0x3, 0x3);
 
 #ifdef CONFIG_SH_AUDIO_DRIVER /* 07-040 */
+#if !defined( CONFIG_MACH_LYNX_DL63 )
 		if (micb_ctl_reg == WCD9XXX_A_MICB_1_CTL && mbhc.current_plug == PLUG_TYPE_HEADSET) {
 			snd_soc_update_bits(codec, TAIKO_A_MICB_2_CTL, 0x80, 0x80);
 		}
+#endif
 #endif /* CONFIG_SH_AUDIO_DRIVER *//* 07-040 */
 
 		if (taiko->mbhc_started && micb_ctl_reg == TAIKO_A_MICB_2_CTL) {
@@ -2931,12 +2935,14 @@ static int taiko_codec_enable_micbias(struct snd_soc_dapm_widget *w,
 		}
 
 #ifdef CONFIG_SH_AUDIO_DRIVER /* 07-040 */
+#if !defined( CONFIG_MACH_LYNX_DL63 )
 		if (micb_ctl_reg == WCD9XXX_A_MICB_1_CTL){
 			u8 mbhc_micb_ctl_val = snd_soc_read(codec, TAIKO_A_MICB_2_CTL);
 			if (mbhc_micb_ctl_val & 0x80) {
 				snd_soc_update_bits(codec, TAIKO_A_MICB_2_CTL, 0x80, 0x00);
 			}
 		}
+#endif
 #endif /* CONFIG_SH_AUDIO_DRIVER *//* 07-040 */
 
 		/* Let MBHC module know so micbias switch to be off */

@@ -65,7 +65,7 @@
 			qcom,max-current = <1000>;
 			qcom,default-state = "off";
 			qcom,headroom = <3>;
-			qcom,duration = <1000>;
+			qcom,duration = <250>;
 			qcom,clamp-curr = <100>;
 			qcom,startup-dly = <3>;
 			qcom,safety-timer;
@@ -78,7 +78,7 @@
 		};
 
 		pm8941_flash1: qcom,flash_1 {
-			qcom,max-current = <1000>;
+			qcom,max-current = <250>;
 			qcom,default-state = "off";
 			qcom,headroom = <3>;
 			qcom,duration = <1000>;
