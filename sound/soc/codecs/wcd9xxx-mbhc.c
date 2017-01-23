@@ -42,23 +42,24 @@
 #include "wcd9xxx-common.h"
 
 #if defined( CONFIG_SH_AUDIO_DRIVER )
-#if defined( CONFIG_MACH_LYNX_DL60 ) || defined( CONFIG_MACH_LYNX_DL63 )
-#define CONFIG_SMARTPHONE_PIERCE 1
-#endif
-#if defined( CONFIG_MACH_LYNX_DL60 )
-#define CONFIG_SMARTPHONE_PIERCE_DL60 1
-#endif /* CONFIG_MACH_LYNX_DL60 */
 #if defined( CONFIG_MACH_LYNX_DL63 )
+#define CONFIG_SMARTPHONE_PIERCE 1
 #define CONFIG_SMARTPHONE_PIERCE_DL63 1
-#endif /* CONFIG_MACH_LYNX_DL63 */
+#elif defined( CONFIG_MACH_LYNX_DL60 )
+#define CONFIG_SMARTPHONE_PIERCE 1
+#define CONFIG_SMARTPHONE_PIERCE_DL60 1
 #endif
+#endif /* CONFIG_SH_AUDIO_DRIVER */
 
 #if defined( CONFIG_SMARTPHONE_PIERCE )
 #include <sharp/shdisp_kerl.h>
 
 #define WCD9XXX_CS_MEAS_PIERCE_RANGE_LOW_MV (150)
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
 #define WCD9XXX_CS_MEAS_PIERCE_RANGE_HIGH_MV (220)
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
 #if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+#define WCD9XXX_CS_MEAS_PIERCE_RANGE_HIGH_MV (265)
 #define WCD9XXX_CS_MEAS_PIERCE_INVALID_LOW_IMPEDANCE (4500)
 #define WCD9XXX_CS_MEAS_PIERCE_INVALID_HIGH_IMPEDANCE (1000*1000)
 #define WCD9XXX_CS_MEAS_PIERCE_DETECT_COUNTER (2)
@@ -1554,9 +1555,6 @@ wcd9xxx_cs_find_plug_type(struct wcd9xxx_mbhc *mbhc,
             d->_vdces <= WCD9XXX_CS_MEAS_PIERCE_RANGE_HIGH_MV ){
             ++smartphone_pierce_count;
         }
-        if( d->mic_bias ){
-            ++smartphone_pierce_count;
-        }
 #endif /* CONFIG_SMARTPHONE_PIERCE */
 #if !defined( CONFIG_SH_AUDIO_DRIVER ) /* invalid range disable */
 		if ((!d->mic_bias &&
@@ -1666,6 +1664,13 @@ wcd9xxx_cs_find_plug_type(struct wcd9xxx_mbhc *mbhc,
         smartphone_pierce_count == sz ){
         insert_smartphone_pierce = true;
         type = PLUG_TYPE_INVALID;
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+    }else if( type == PLUG_TYPE_HEADSET &&
+              smartphone_pierce_count != 0 ){
+        pr_debug( "%s: Invalid, could not decide headset...\n", __func__ );
+        insert_smartphone_pierce = false;
+        type = PLUG_TYPE_INVALID;
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
     }else{
         insert_smartphone_pierce = false;
     }
@@ -2583,7 +2588,7 @@ static void wcd9xxx_mbhc_decide_swch_plug(struct wcd9xxx_mbhc *mbhc)
 		wcd9xxx_schedule_hs_detect_plug(mbhc,
 						&mbhc->correct_plug_swch);
 	} else if (plug_type == PLUG_TYPE_HIGH_HPH) {
-#if defined( CONFIG_SMARTPHONE_PIERCE )
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
         report_remove_smartphone_pierce( mbhc );
 #endif /* CONFIG_SMARTPHONE_PIERCE */
 		wcd9xxx_cleanup_hs_polling(mbhc);
@@ -2646,6 +2651,11 @@ static void wcd9xxx_hs_insert_irq_swch(struct wcd9xxx_mbhc *mbhc,
 						      &mbhc->correct_plug_swch);
 			wcd9xxx_mbhc_decide_swch_plug(mbhc);
 		}
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+		else{
+			report_remove_smartphone_pierce( mbhc );
+		}
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 	} else {
 		pr_err("%s: Switch IRQ used, invalid MBHC Removal\n", __func__);
 	}
@@ -2941,6 +2951,9 @@ static irqreturn_t wcd9xxx_hs_remove_irq(int irq, void *data)
 		wcd9xxx_resmgr_cond_update_cond(mbhc->resmgr,
 						WCD9XXX_COND_HPH, false);
 	}
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+	report_remove_smartphone_pierce( mbhc );
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 
 	if (mbhc->mbhc_cfg->detect_extn_cable &&
 	    !wcd9xxx_swch_level_remove(mbhc))
@@ -3311,6 +3324,34 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 			}
 #if defined( CONFIG_SMARTPHONE_PIERCE )
             else{
+#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
+				if( mbhc->current_plug == PLUG_TYPE_HEADPHONE ){
+					pr_debug( "%s: remove headpone\n", __func__ );
+					WCD9XXX_BCL_LOCK(mbhc->resmgr);
+					wcd9xxx_report_plug( mbhc, 0, SND_JACK_HEADPHONE );
+					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
+				}else if( mbhc->current_plug == PLUG_TYPE_GND_MIC_SWAP ){
+					pr_debug( "%s: remove gnd_mic_swap\n", __func__ );
+					WCD9XXX_BCL_LOCK(mbhc->resmgr);
+					wcd9xxx_report_plug( mbhc, 0, SND_JACK_UNSUPPORTED);
+					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
+				}else if( mbhc->current_plug == PLUG_TYPE_HEADSET ){
+					pr_debug( "%s: remove headset\n", __func__ );
+					WCD9XXX_BCL_LOCK(mbhc->resmgr);
+					wcd9xxx_report_plug( mbhc, 0, SND_JACK_HEADSET );
+					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
+				}else if( mbhc->current_plug == PLUG_TYPE_HIGH_HPH ){
+					pr_debug( "%s: remove high_hph\n", __func__ );
+					WCD9XXX_BCL_LOCK(mbhc->resmgr);
+					wcd9xxx_report_plug( mbhc, 0, SND_JACK_LINEOUT );
+					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
+				}else if( mbhc->current_plug == PLUG_TYPE_ANC_HEADPHONE ){
+					pr_debug( "%s: remove anc_headphone", __func__ );
+					WCD9XXX_BCL_LOCK(mbhc->resmgr);
+					wcd9xxx_report_plug( mbhc, 0, SND_JACK_ANC_HEADPHONE );
+					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
+				}
+#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
                 report_insert_smartphone_pierce( mbhc );
 #if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
 				if( already_called_insert_sp_pierce ) break;
