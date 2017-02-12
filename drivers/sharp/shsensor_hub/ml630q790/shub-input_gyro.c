@@ -265,11 +265,12 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 if(power_state != 0){
                     shub_logging_flush();
                     setMaxBatchReportLatency(SHUB_ACTIVE_SENSOR, batch_param.m_Latency);
-                    shub_idev->sync = 0;
-// SHMDS_HUB_0701_05 mod S
+                    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
+// SHMDS_HUB_0309_01 mod S
 //                  input_event(shub_idev, EV_SYN, SYN_REPORT, 2);
+                    shub_input_first_report(shub_idev, 1); /* SHMDS_HUB_0308_01 add */
                     input_event(shub_idev, EV_SYN, SYN_REPORT, (SHUB_INPUT_META_DATA | SHUB_INPUT_GYRO));
-// SHMDS_HUB_0701_05 mod E
+// SHMDS_HUB_0309_01 mod E
                 }else{
                     mutex_unlock(&shub_lock);
                     return -EFAULT;
@@ -340,21 +341,87 @@ static long shub_ioctl_wrapper(struct file *filp, unsigned int cmd, unsigned lon
 }
 // SHMDS_HUB_1101_01 add E
 
+/* SHMDS_HUB_0311_01 add S */
+static struct timespec shub_normal_last_ts;
+static struct timespec shub_local_ts;
+static struct timespec shub_get_timestamp(void)
+{
+    struct timespec ts;
+    ktime_get_ts(&ts);
+    monotonic_to_bootbased(&ts);
+    return ts;
+}
+static bool shub_work_busy_flg = false;
+static int64_t shub_local_ts_ns_old = 0;	/* SHMDS_HUB_0311_02 add */
+/* SHMDS_HUB_0311_01 add E */
+
 static void shub_sensor_poll_work_func(struct work_struct *work)
 {
     int32_t xyz[INDEX_SUM]= {0};
     if(currentActive != 0){
         mutex_lock(&shub_lock);
         shub_qos_start();    // SHMDS_HUB_1101_01 add
-        shub_get_sensors_data(SHUB_ACTIVE_SENSOR, xyz);
-        shub_input_report_gyro(xyz);
+/* SHMDS_HUB_0311_01 mod S */
+//        shub_get_sensors_data(SHUB_ACTIVE_SENSOR, xyz);
+        if((shub_get_sensor_activate_info(SHUB_SAME_NOTIFY_GYRO) == GYRO_GROUP_MASK) && (shub_get_sensor_same_delay_flg(SHUB_SAME_NOTIFY_GYRO) == 1)){
+            if(shub_get_sensor_first_measure_info(SHUB_SAME_NOTIFY_GYRO) & SHUB_ACTIVE_SENSOR) {
+                int32_t xyz_gyro_uc[9]= {0};
+                struct timespec tmp_ts;
+/* SHMDS_HUB_0311_02 mod S */
+                int64_t local_ts_ns;
+                memcpy(&tmp_ts, &shub_local_ts, sizeof(struct timespec));
+                local_ts_ns = ((int64_t)tmp_ts.tv_nsec + (int64_t)tmp_ts.tv_sec * 1000000000);
+                shub_get_sensors_data(SHUB_ACTIVE_GYROUNC, xyz_gyro_uc);
+                if( (shub_local_ts_ns_old < (local_ts_ns - delay * 600000)) && 
+                    (((int64_t)shub_normal_last_ts.tv_nsec + (int64_t)shub_normal_last_ts.tv_sec * 1000000000) < (local_ts_ns - delay * 600000)) ){
+/* SHMDS_HUB_0311_02 mod E */
+                    xyz_gyro_uc[7] = tmp_ts.tv_sec;
+                    xyz_gyro_uc[8] = tmp_ts.tv_nsec;
+                }
+                else {
+                    shub_work_busy_flg = false;
+                    shub_qos_end();      // SHMDS_HUB_1101_01 add
+                    mutex_unlock(&shub_lock);
+                    return ;
+                }
+                xyz[0] = xyz_gyro_uc[0] - xyz_gyro_uc[4];
+                xyz[1] = xyz_gyro_uc[1] - xyz_gyro_uc[5];
+                xyz[2] = xyz_gyro_uc[2] - xyz_gyro_uc[6];
+                xyz[3] = xyz_gyro_uc[3];
+                xyz[4] = xyz_gyro_uc[7];
+                xyz[5] = xyz_gyro_uc[8];
+                shub_input_report_gyro(xyz);
+                shub_input_report_gyro_uncal(xyz_gyro_uc);
+                shub_local_ts_ns_old = local_ts_ns;		/* SHMDS_HUB_0311_02 add */
+            }
+        }
+        else {
+            shub_get_sensors_data(SHUB_ACTIVE_SENSOR, xyz);
+            shub_normal_last_ts.tv_sec = xyz[4];
+            shub_normal_last_ts.tv_nsec = xyz[5];
+            shub_input_report_gyro(xyz);
+            shub_local_ts_ns_old = 0;		/* SHMDS_HUB_0311_02 add */
+        }
+/* SHMDS_HUB_0311_01 mod E */
         shub_qos_end();      // SHMDS_HUB_1101_01 add
         mutex_unlock(&shub_lock);
     }
+    shub_work_busy_flg = false; /* SHMDS_HUB_0311_01 add */
 }
 
 static enum hrtimer_restart shub_sensor_poll(struct hrtimer *tm)
 {
+    /* SHMDS_HUB_0311_01 add S */
+    if(shub_work_busy_flg){
+        hrtimer_forward_now(&poll_timer, ns_to_ktime((int64_t)delay * NSEC_PER_MSEC));
+        return HRTIMER_RESTART;
+    }
+    
+    if((shub_get_sensor_activate_info(SHUB_SAME_NOTIFY_GYRO) == GYRO_GROUP_MASK) && (shub_get_sensor_same_delay_flg(SHUB_SAME_NOTIFY_GYRO) == 1)){
+        shub_work_busy_flg = true;
+    }
+    shub_local_ts = shub_get_timestamp();
+    /* SHMDS_HUB_0311_01 add E */
     schedule_work(&sensor_poll_work);
     hrtimer_forward_now(&poll_timer, ns_to_ktime((int64_t)delay * NSEC_PER_MSEC));
     return HRTIMER_RESTART;
@@ -366,6 +433,7 @@ void shub_suspend_gyro(void)
     if(currentActive != 0){
         shub_set_sensor_poll(0);
         cancel_work_sync(&sensor_poll_work);
+        shub_work_busy_flg = false; /* SHMDS_HUB_0311_01 add */
     }
 }
 
@@ -390,13 +458,14 @@ void shub_input_report_gyro(int32_t *data)
     DBG_GYRO_DATA("data X=%d, Y=%d, Z=%d, S=%d, t(s)=%d, t(ns)=%d\n", data[INDEX_X],data[INDEX_Y],data[INDEX_Z],data[INDEX_ACC],data[INDEX_TM],data[INDEX_TMNS]);
 // SHMDS_HUB_0701_01 add E
 
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_RX ,data[INDEX_X]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_RX, data[INDEX_X]);
     input_report_abs(shub_idev, ABS_RY, data[INDEX_Y]);
     input_report_abs(shub_idev, ABS_RZ, data[INDEX_Z]);
     input_report_abs(shub_idev, ABS_HAT0X, data[INDEX_ACC]);
     input_report_abs(shub_idev, ABS_MISC, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_VOLUME, data[INDEX_TMNS]);
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
 #if 1  // SHMDS_HUB_0601_01 mod S
     input_event(shub_idev, EV_SYN, SYN_REPORT, SHUB_INPUT_GYRO);
 #else
@@ -413,6 +482,7 @@ static void shub_set_abs_params(void)
     input_set_abs_params(shub_idev, ABS_RY, GYRO_MIN, GYRO_MAX, 0, 0);
     input_set_abs_params(shub_idev, ABS_RZ, GYRO_MIN, GYRO_MAX, 0, 0);
     input_set_abs_params(shub_idev, ABS_HAT0X, 0, 0xFF, 0, 0);
+    shub_set_param_first(shub_idev); /* SHMDS_HUB_0308_01 add */
 }
 #endif // SHMDS_HUB_0601_01 del E
 
@@ -423,6 +493,18 @@ static void shub_set_sensor_poll(int32_t en)
         hrtimer_start(&poll_timer, ns_to_ktime((int64_t)delay * NSEC_PER_MSEC), HRTIMER_MODE_REL);
     }
 }
+
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_input_gyro(struct seq_file *s)
+{
+    seq_printf(s, "[gyro      ]");
+    seq_printf(s, "power_state=%d, ",power_state);
+    seq_printf(s, "delay=%d, ",delay);
+    seq_printf(s, "batch_param.m_Flasg=%d, ",batch_param.m_Flasg);
+    seq_printf(s, "batch_param.m_PeriodNs=%lld, ",batch_param.m_PeriodNs);
+    seq_printf(s, "batch_param.m_Latency=%lld\n",batch_param.m_Latency);
+}
+// SHMDS_HUB_0701_05 add E
 
 // SHMDS_HUB_1101_01 mod S
 static struct file_operations shub_fops = {
@@ -518,6 +600,7 @@ static void __exit shub_exit(void)
     platform_device_unregister(pdev);
 
     cancel_work_sync(&sensor_poll_work);
+    shub_work_busy_flg = false; /* SHMDS_HUB_0311_01 add */
 }
 
 module_init(shub_init);

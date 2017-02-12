@@ -6,6 +6,11 @@ config SHIRDA
 	bool "SHIRDA driver"
 	default n
 
+config SHIRBLASTER
+	bool "SHIRBLASTER driver"
+	depends on SHIRDA
+	default n
+
 config SHIRDA_CPU_HW
 	string "CPU Chips & HardWare"
 	default "default"

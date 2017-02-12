@@ -76,17 +76,9 @@ endif
 #        dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-liquid.dtb
 #        dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pm8941-mtp.dtb
 #        dtb-$(CONFIG_ARCH_MSM8974)	+= msm8974pro-ac-pma8084-pm8941-mtp.dtb
-#        dtb-$(CONFIG_MACH_WHAMU)	+= msm8974-sharp-whamu-v1.dtb
-#        dtb-$(CONFIG_MACH_WHAMU)	+= msm8974-sharp-whamu-v2.0-1.dtb
-#        dtb-$(CONFIG_MACH_WHAMU)	+= msm8974-sharp-whamu-v2.2.dtb
-        dtb-$(CONFIG_MACH_WHAMU)	+= msm8974-sharp-whamu-pro-ab.dtb
         dtb-$(CONFIG_MACH_LYNX_DL50)	+= msm8974-sharp-dl50-pro-ab-pm8941.dtb
         dtb-$(CONFIG_MACH_DECKARD_AS99)	+= msm8974-sharp-as99-pro-ab-pm8941.dtb
-        dtb-$(CONFIG_MACH_EBZ)	+= msm8974-sharp-pa24-pro-ab-pm8941.dtb
-        dtb-$(CONFIG_MACH_LYNX_GP9D)	+= msm8974-sharp-gp9d-pro-ab-pm8941.dtb
         dtb-$(CONFIG_MACH_LYNX_DL60)	+= msm8974-sharp-dl60-pro-ab-pm8941.dtb
-        dtb-$(CONFIG_MACH_REN)	+= msm8974-sharp-pa26-pro-ab-pm8941.dtb
-        dtb-$(CONFIG_MACH_DECKARD_AL15)	+= msm8974-sharp-al15-pro-ab-pm8941.dtb
 
 # APQ8084
    zreladdr-$(CONFIG_ARCH_APQ8084)	:= 0x00008000

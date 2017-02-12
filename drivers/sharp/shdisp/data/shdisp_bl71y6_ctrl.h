@@ -677,6 +677,10 @@ static const shdisp_bdicRegSetting_t shdisp_bdic_psals_init[] = {
      {SENSOR_REG_COMMAND2,          SHDISP_ALS_STRM,    SENSOR_REG_COMMAND2_INI_VAL, 0xFF,      0},
      {SENSOR_REG_COMMAND3,          SHDISP_ALS_STRM,    0x10,                        0xFF,      0},
      {SENSOR_REG_COMMAND4,          SHDISP_ALS_STRM,    0x00,                        0xFF,      0},
+     {SENSOR_REG_INT_LT_LSB,        SHDISP_ALS_STRM,    0xFF,                        0xFF,      0},
+     {SENSOR_REG_INT_LT_MSB,        SHDISP_ALS_STRM,    0xFF,                        0xFF,      0},
+     {SENSOR_REG_INT_HT_LSB,        SHDISP_ALS_STRM,    0x00,                        0xFF,      0},
+     {SENSOR_REG_INT_HT_MSB,        SHDISP_ALS_STRM,    0x00,                        0xFF,      0},
      {SENSOR_REG_COMMAND1,          SHDISP_ALS_STR,     0xD0,                        0xFF,      0}
 };
 
@@ -992,6 +996,24 @@ static shdisp_bdicRegSetting_t shdisp_bdic_restore_regs_for_bank1_dump[] = {
      {BDIC_REG_SYSTEM8,             SHDISP_BDIC_STR,    0x04,                       0xFF,   1000}
 };
 #endif /* CONFIG_ANDROID_ENGINEERING */
+
+#ifdef SHDISP_ALS_INT
+static shdisp_bdicRegSetting_t shdisp_bdic_reg_als_int_setting[] = {
+     {BDIC_REG_BANKSEL,             SHDISP_BDIC_BANK,   0x00,                       0x00,      0},
+     {BDIC_REG_OPT_INT1,            SHDISP_BDIC_STR,    0x00,                       0xFF,      0},
+     {BDIC_REG_OPT_INT2,            SHDISP_BDIC_STR,    0x00,                       0xFF,      0},
+     {BDIC_REG_GIMR2,               SHDISP_BDIC_SET,    0x30,                       0x30,      0}
+};
+
+static shdisp_bdicRegSetting_t shdisp_bdic_reg_als_int_clear[] = {
+     {BDIC_REG_BANKSEL,             SHDISP_BDIC_BANK,   0x00,                       0x00,      0},
+     {BDIC_REG_GIMR2,               SHDISP_BDIC_CLR,    0x00,                       0x30,      0},
+     {BDIC_REG_SYSTEM8,             SHDISP_BDIC_STR,    0x08,                       0xFF,   3000},
+     {BDIC_REG_AR_CTRL,             SHDISP_BDIC_CLR,    0x00,                       0x04,      0},
+     {BDIC_REG_SYSTEM8,             SHDISP_BDIC_STR,    0x04,                       0xFF,   3000},
+     {BDIC_REG_AR_CTRL,             SHDISP_BDIC_SET,    0x04,                       0x04,      0}
+};
+#endif /* SHDISP_ALS_INT */
 #endif /* SHDISP_BL71Y6_CTRL_H */
 
 /* ------------------------------------------------------------------------- */

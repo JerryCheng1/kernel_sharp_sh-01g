@@ -35,7 +35,9 @@
 #define SHDISP_INT_ENABLE_GFAC                  (SHDISP_BDIC_INT_GFAC_ALS | \
                                                  SHDISP_BDIC_INT_GFAC_DET | \
                                                  SHDISP_BDIC_INT_GFAC_I2C_ERR | \
-                                                 SHDISP_BDIC_INT_GFAC_OPTSEL)
+                                                 SHDISP_BDIC_INT_GFAC_OPTSEL  | \
+                                                 SHDISP_BDIC_INT_GFAC_ALS_TRG1 | \
+                                                 SHDISP_BDIC_INT_GFAC_ALS_TRG2)
 
 #define SHDISP_LUX_CHANGE_LEVEL1                (0x0B)
 #define SHDISP_LUX_CHANGE_LEVEL2                (0x01)

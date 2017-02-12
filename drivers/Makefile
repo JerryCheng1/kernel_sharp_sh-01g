@@ -133,7 +133,14 @@ obj-$(CONFIG_SHBOOT_CUST)	+= sharp/shboot/
 obj-y				+= sharp/mfc/
 obj-y				+= sharp/nfc/
 obj-$(CONFIG_SHDIAG)		+= sharp/shdiag/
-obj-$(CONFIG_SHDISP)  += sharp/shdisp/
+ifeq ($(CONFIG_SHDISP),y)
+ifeq ($(CONFIG_USES_SHLCDC),y)
+obj-y           += sharp/shdisp_lcdc/
+else
+obj-y           += sharp/shdisp/
+endif
+endif
+
 #SH_AUDIO_DRIVER => 09-101
 obj-$(CONFIG_SHRECEIVER_LM48560)      += sharp/shspamp/
 #SH_AUDIO_DRIVER <= 09-101
@@ -170,7 +177,7 @@ obj-$(CONFIG_SENSOR_SHGRIP)	+= sharp/shgrip/
 obj-$(CONFIG_TOUCHSCREEN_SHTPS) += sharp/shtps/
 obj-$(CONFIG_PRONTO_WLAN) += sharp/wifi/qcom/prima/
 obj-$(CONFIG_SHIRDA)		+= sharp/shirda/
-#obj-$(CONFIG_SHMDS)		+= sharp/shmds/
+obj-$(CONFIG_SHMDS)		+= sharp/shmds/
 obj-$(CONFIG_SHUB)		+= sharp/shsensor_hub/ml630q790/
 
 obj-$(CONFIG_SHVIBRATOR_LINEAR) += sharp/shvibrator/

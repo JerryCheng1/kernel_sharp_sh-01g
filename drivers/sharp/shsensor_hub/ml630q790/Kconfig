@@ -177,3 +177,16 @@ config SIGNIFICANT_MOTION
 	 --- help ---
 	 If you say yes here you get support for Significant motion.
 
+# SHMDS_HUB_0112_01 add S
+config MAG_AXIS_CHK
+	bool "Magnetic filed Axis Check"
+	depends on SHUB_ML630Q790
+	default n
+# SHMDS_HUB_0112_01 add E
+
+# SHMDS_HUB_1601_01 add S
+config GYRO_CALIB_SETTING
+	bool "Gyro calibrate parameter setting"
+	depends on SHUB_ML630Q790
+	default n
+# SHMDS_HUB_1601_01 add E

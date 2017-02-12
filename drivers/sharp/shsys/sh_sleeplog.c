@@ -381,6 +381,23 @@ void sh_set_screen_state(struct timespec ts, suspend_state_t state)
 	spin_unlock_irqrestore(&lock, flags);
 }
 
+void sh_set_screen_state_without_time(int screen_state)
+{
+	struct timespec ts;
+	unsigned long flags;
+
+	getnstimeofday(&ts);
+
+	spin_lock_irqsave(&lock, flags);
+	screen_state_array[screen_state_write_point].time = ts;
+	screen_state_array[screen_state_write_point].state =
+		screen_state ? 1 : 0;
+
+	screen_state_write_point =
+		(screen_state_write_point + 1) % MAX_SCREEN_STATE_ARRAY;
+	spin_unlock_irqrestore(&lock, flags);
+}
+
 void sh_get_process_name(struct task_struct *task, char *result_name)
 {
 	struct mm_struct *mm;

@@ -76,15 +76,10 @@
 #include "f_rmnet.c"
 #include "f_gps.c"
 #endif /* CONFIG_USB_ANDROID_SH_CUST */
-#ifdef CONFIG_USB_ANDROID_SH_UMS
-#include "f_sh_msc.c"
-#endif /* CONFIG_USB_ANDROID_SH_UMS */
 #ifdef CONFIG_SND_PCM
 #include "f_audio_source.c"
-#endif
-#if !defined(CONFIG_USB_ANDROID_SH_UMS) || defined(CONFIG_USB_ANDROID_MASS_STORAGE_CD)
+#endif /* CONFIG_SND_PCM */
 #include "f_mass_storage.c"
-#endif /* !defined(CONFIG_USB_ANDROID_SH_UMS) || defined(CONFIG_USB_ANDROID_MASS_STORAGE_CD) */
 #include "u_serial.c"
 #include "u_sdio.c"
 #include "u_smd.c"
@@ -2196,7 +2191,9 @@ static struct android_usb_function ecm_function = {
 };
 #endif /* CONFIG_USB_ANDROID_SH_CUST */
 
-#if !defined(CONFIG_USB_ANDROID_SH_UMS) || defined(CONFIG_USB_ANDROID_MASS_STORAGE_CD)
+#ifdef CONFIG_USB_ANDROID_SH_UMS
+#define USB_INQUIRY_STRING_LEN		(8 + 16 + 4 + 1)
+#endif /* CONFIG_USB_ANDROID_SH_UMS */
 struct mass_storage_function_config {
 	struct fsg_config fsg;
 	struct fsg_common *common;
@@ -2206,9 +2203,7 @@ struct mass_storage_function_config {
 static int mass_storage_function_init(struct android_usb_function *f,
 					struct usb_composite_dev *cdev)
 {
-#ifndef CONFIG_USB_ANDROID_MASS_STORAGE_CD
 	struct android_dev *dev = cdev_to_android_dev(cdev);
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
 	struct mass_storage_function_config *config;
 	struct fsg_common *common;
 	int err;
@@ -2224,12 +2219,6 @@ static int mass_storage_function_init(struct android_usb_function *f,
 	config->fsg.nluns = 1;
 	snprintf(name[0], MAX_LUN_NAME, "lun");
 	config->fsg.luns[0].removable = 1;
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE_CD
-	config->fsg.luns[0].cdrom = 1;
-	config->fsg.luns[0].ro = 1;
-	config->fsg.release = 0x0100;
-	config->fsg.can_stall = 1;
-#else /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
 	if (dev->pdata && dev->pdata->cdrom) {
 		config->fsg.luns[config->fsg.nluns].cdrom = 1;
 		config->fsg.luns[config->fsg.nluns].ro = 1;
@@ -2244,7 +2233,6 @@ static int mass_storage_function_init(struct android_usb_function *f,
 		snprintf(name[config->fsg.nluns], MAX_LUN_NAME, "lun1");
 		config->fsg.nluns++;
 	}
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
 
 	if (uicc_nluns > FSG_MAX_LUNS - config->fsg.nluns) {
 		uicc_nluns = FSG_MAX_LUNS - config->fsg.nluns;
@@ -2311,21 +2299,22 @@ static ssize_t mass_storage_inquiry_store(struct device *dev,
 	struct android_usb_function *f = dev_get_drvdata(dev);
 	struct mass_storage_function_config *config = f->config;
 
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE_CD
+#ifdef CONFIG_USB_ANDROID_SH_UMS
 	char *line_feed;
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
+#endif /* CONFIG_USB_ANDROID_SH_UMS */	
+
 	if (size >= sizeof(config->common->inquiry_string))
 		return -EINVAL;
 
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE_CD
+#ifdef CONFIG_USB_ANDROID_SH_UMS
 	strncpy(config->common->inquiry_string, buf, USB_INQUIRY_STRING_LEN);
 	config->common->inquiry_string[USB_INQUIRY_STRING_LEN-1] = 0x00;
 	line_feed = strstr(config->common->inquiry_string, "\n");
 	if(line_feed) *line_feed = 0x00;
-#else /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
+#else /* CONFIG_USB_ANDROID_SH_UMS */
 	if (sscanf(buf, "%28s", config->common->inquiry_string) != 1)
 		return -EINVAL;
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
+#endif /* CONFIG_USB_ANDROID_SH_UMS */
 	return size;
 }
 
@@ -2333,27 +2322,35 @@ static DEVICE_ATTR(inquiry_string, S_IRUGO | S_IWUSR,
 					mass_storage_inquiry_show,
 					mass_storage_inquiry_store);
 
+#ifdef CONFIG_USB_ANDROID_SH_UMS
+static ssize_t msc_port_state_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct android_usb_function *f = dev_get_drvdata(dev);
+	struct mass_storage_function_config *config = f->config;
+	
+	return snprintf(buf, PAGE_SIZE, "%s\n", (config->common->state ? "online" : "offline"));
+}
+
+static DEVICE_ATTR(port_state, S_IRUGO, msc_port_state_show, NULL);
+#endif /* CONFIG_USB_ANDROID_SH_UMS */
+
 static struct device_attribute *mass_storage_function_attributes[] = {
 	&dev_attr_inquiry_string,
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE_CD
+#ifdef CONFIG_USB_ANDROID_SH_UMS
 	/* define the device attributes in sh_string.c */
-	&dev_attr_cd_iInterface,
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
+	&dev_attr_msc_iInterface,
+	&dev_attr_port_state,
+#endif /* CONFIG_USB_ANDROID_SH_UMS */
 	NULL
 };
 
 static struct android_usb_function mass_storage_function = {
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE_CD
-	.name		= "mass_storage_cd",
-#else /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
 	.name		= "mass_storage",
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
 	.init		= mass_storage_function_init,
 	.cleanup	= mass_storage_function_cleanup,
 	.bind_config	= mass_storage_function_bind_config,
 	.attributes	= mass_storage_function_attributes,
 };
-#endif /* !defined(CONFIG_USB_ANDROID_SH_UMS) || defined(CONFIG_USB_ANDROID_MASS_STORAGE_CD) */
 
 
 static int accessory_function_init(struct android_usb_function *f,
@@ -2387,64 +2384,6 @@ static struct android_usb_function accessory_function = {
 	.bind_config	= accessory_function_bind_config,
 	.ctrlrequest	= accessory_function_ctrlrequest,
 };
-
-#ifdef CONFIG_USB_ANDROID_SH_UMS
-static int msc_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
-{
-	return msc_setup(cdev, f->dev);
-}
-
-static void msc_function_cleanup(struct android_usb_function *f)
-{
-	msc_cleanup();
-}
-
-static int msc_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
-{
-	return msc_bind_config(c);
-}
-
-static ssize_t msc_inquiry_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return snprintf(buf, PAGE_SIZE, "%s\n", _msc_dev->msc_inquiry_string);
-}
-
-static ssize_t msc_inquiry_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t size)
-{
-	char *line_feed;
-	if (size >= sizeof(_msc_dev->msc_inquiry_string))
-		return -EINVAL;
-	strncpy(_msc_dev->msc_inquiry_string, buf, USB_MSC_INQUIRY_STRING_LEN);
-	_msc_dev->msc_inquiry_string[USB_MSC_INQUIRY_STRING_LEN-1] = 0x00;
-	line_feed = strstr(_msc_dev->msc_inquiry_string, "\n");
-	if(line_feed) *line_feed = 0x00;
-	return size;
-}
-static DEVICE_ATTR(msc_inquiry_string, S_IRUGO | S_IWUSR, msc_inquiry_show, msc_inquiry_store);
-
-static ssize_t msc_port_state_show(struct device *dev, struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%s\n", (atomic_read(&_msc_dev->online) ? "online" : "offline"));
-}
-
-static DEVICE_ATTR(port_state, S_IRUGO, msc_port_state_show, NULL);
-
-static struct device_attribute *msc_function_attributes[] = {
-	&dev_attr_msc_inquiry_string,
-	/* define the device attributes in sh_string.c */
-	&dev_attr_msc_iInterface,
-	&dev_attr_port_state,
-	NULL
-};
-
-static struct android_usb_function msc_function = {
-	.name		= "mass_storage",
-	.init		= msc_function_init,
-	.cleanup	= msc_function_cleanup,
-	.bind_config	= msc_function_bind_config,
-	.attributes	= msc_function_attributes,
-};
-#endif /* CONFIG_USB_ANDROID_SH_UMS */
 
 #ifdef CONFIG_SND_PCM
 static int audio_source_function_init(struct android_usb_function *f,
@@ -2568,12 +2507,7 @@ static struct android_usb_function *supported_functions[] = {
 	&obex_function,
 	&mdlm_function,
 	&acm_function,
-#ifdef CONFIG_USB_ANDROID_SH_UMS
-	&msc_function,
-#endif /* CONFIG_USB_ANDROID_SH_UMS */
-#if !defined(CONFIG_USB_ANDROID_SH_UMS) || defined(CONFIG_USB_ANDROID_MASS_STORAGE_CD)
 	&mass_storage_function,
-#endif /* !defined(CONFIG_USB_ANDROID_SH_UMS) || defined(CONFIG_USB_ANDROID_MASS_STORAGE_CD) */
 	&mtp_function,
 	&ptp_function,
 	&adb_function,

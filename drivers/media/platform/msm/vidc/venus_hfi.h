@@ -18,6 +18,7 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
+#include <linux/wakelock.h>
 #include <mach/ocmem.h>
 #include <mach/iommu_domains.h>
 
@@ -196,7 +197,6 @@ struct venus_hfi_device {
 	u32 device_id;
 	u32 clk_load;
 	u32 bus_load[MSM_VIDC_MAX_DEVICES];
-	unsigned long ocmem_size;
 	enum clock_state clk_state;
 	bool power_enabled;
 	enum vidc_clocks clk_gating_level;
@@ -216,6 +216,7 @@ struct venus_hfi_device {
 	struct workqueue_struct *venus_pm_workq;
 	int spur_count;
 	int reg_count;
+	int pc_num_cmds;
 	u32 base_addr;
 	u32 register_base;
 	u32 register_size;
@@ -226,6 +227,7 @@ struct venus_hfi_device {
 	struct msm_vidc_platform_resources *res;
 	struct regulator *gdsc;
 	enum venus_hfi_state state;
+	struct wake_lock video_wake_lock;
 };
 
 void venus_hfi_delete_device(void *device);

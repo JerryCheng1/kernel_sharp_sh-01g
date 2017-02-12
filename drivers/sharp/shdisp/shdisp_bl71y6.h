@@ -540,6 +540,8 @@
 #define SHDISP_BDIC_INT_GFAC_OPTSEL                 (0x00200000)
 #define SHDISP_BDIC_INT_GFAC_TEST5                  (0x00400000)
 #define SHDISP_BDIC_INT_GFAC_TEST6                  (0x00800000)
+#define SHDISP_BDIC_INT_GFAC_ALS_TRG1               (0x01000000)
+#define SHDISP_BDIC_INT_GFAC_ALS_TRG2               (0x02000000)
 
 #define SHDISP_BKL_TBL_MODE_NORMAL                  (0)
 #define SHDISP_BKL_TBL_MODE_ECO                     (1)
@@ -559,6 +561,15 @@
 #define SHDISP_BDIC_GINF3_DCDC1_OVD                 (0x20)
 
 #define SHDISP_ALS_SENSOR_ADJUST_STATUS_COMPLETED   (0x90)
+
+#ifdef SHDISP_ALS_INT
+#define SHDISP_BDIC_OPT_L_EDGE_EN           (0x20)
+#define SHDISP_BDIC_OPT_H_EDGE_EN           (0x40)
+#define SHDISP_BDIC_OPT_TH_SIDE             (0x80)
+
+#define SHDISP_BDIC_OPT_TABLE1_IMR          (0x10)
+#define SHDISP_BDIC_OPT_TABLE2_IMR          (0x20)
+#endif /* SHDISP_ALS_INT */
 
 /* ------------------------------------------------------------------------- */
 /* TYPES                                                                     */
@@ -641,6 +652,11 @@ enum {
     SHDISP_BDIC_IRQ_TYPE_PS,
     SHDISP_BDIC_IRQ_TYPE_DET,
     SHDISP_BDIC_IRQ_TYPE_I2C_ERR,
+#ifdef SHDISP_ALS_INT
+    SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER,
+    SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER1,
+    SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER2,
+#endif /* SHDISP_ALS_INT */
     NUM_SHDISP_BDIC_IRQ_TYPE
 };
 
@@ -788,13 +804,18 @@ void shdisp_bdic_API_TRI_LED_pattern2_on(int interval, int count);
 #endif  /* SHDISP_EXTEND_COLOR_LED */
 int  shdisp_bdic_API_PHOTO_SENSOR_get_lux(unsigned short *value, unsigned long *lux);
 int  shdisp_bdic_API_PHOTO_SENSOR_get_raw_als(unsigned short *clear, unsigned short *ir);
-int  shdisp_bdic_API_PHOTO_SENSOR_lux_change_ind(int *mode);
+#ifdef SHDISP_ALS_INT
+int shdisp_bdic_API_PHOTO_SENSOR_set_alsint(struct shdisp_photo_sensor_int_trigger *value);
+int shdisp_bdic_API_PHOTO_SENSOR_get_alsint(struct shdisp_photo_sensor_int_trigger *value);
+#endif /* SHDISP_ALS_INT */
+int shdisp_bdic_API_PHOTO_SENSOR_get_light_info(struct shdisp_light_info *value);
+int shdisp_bdic_API_PHOTO_SENSOR_lux_change_ind(int *mode);
 int shdisp_bdic_API_i2c_transfer(struct shdisp_bdic_i2c_msg *msg);
 unsigned char shdisp_bdic_API_I2C_start_judge(void);
 void shdisp_bdic_API_I2C_start_ctl(int flg);
 #ifdef SHDISP_TRI_LED2
-int  shdisp_bdic_API_TRI_LED_off2(void);
-int  shdisp_bdic_API_TRI_LED_normal_on2(unsigned char color);
+int shdisp_bdic_API_TRI_LED_off2(void);
+int shdisp_bdic_API_TRI_LED_normal_on2(unsigned char color);
 void shdisp_bdic_API_TRI_LED_blink_on2(unsigned char color, int ontime, int interval, int count);
 void shdisp_bdic_API_TRI_LED_firefly_on2(unsigned char color, int ontime, int interval, int count);
 #ifdef SHDISP_EXTEND_COLOR_LED

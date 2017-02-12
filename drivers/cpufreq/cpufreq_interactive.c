@@ -152,7 +152,7 @@ extern int msm_routing_get_is_music_play(void);
 #define SHSYS_CPUFREQ_INTERACTIVE_THRESHOLD		(1036800)
 #define SHSYS_CPUFREQ_INTERACTIVE_STEP			(1036800)
 #define SHSYS_CPUFREQ_INTERACTIVE_STEPHIGH		(1497600)
-#define SHSYS_CPUFREQ_INTERACTIVE_BOOST			(1497600)
+#define SHSYS_CPUFREQ_INTERACTIVE_BOOST                 (1497600)
 
 static unsigned int freq_step = DEF_FREQ_STEP;
 static unsigned int freq_step_high = DEF_FREQ_STEP_HIGH;

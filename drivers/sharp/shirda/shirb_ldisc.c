@@ -1,6 +1,6 @@
 /* drivers/sharp/shirda/shirb_ldisc.c (sharp IrDA driver)
  *
- * Copyright (C) 2011 - 2014 SHARP CORPORATION All rights reserved.
+ * Copyright (C) 2011 - 2015 SHARP CORPORATION All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -23,8 +23,6 @@
 
 
 #define	SHIRB_LDISC_VERSION	"00.10.00"
-
-#define	SHIRB_LDISC_NAME	"shirb_ldisc"
 
 spinlock_t irb_write_lock;
 

@@ -339,7 +339,9 @@ typedef struct shbatt_smem_info_tag
 	int				shbatt_fuel_data[4];
 	int				shbatt_vbat_data[4];
 	unsigned long	boot_mode;
+#ifdef CONFIG_MACH_LYNX_DL60
 	unsigned char	traceability_info[22];
+#endif
 } shbatt_smem_info_t;
 
 typedef struct

@@ -26,6 +26,11 @@
 #include <linux/wakelock.h>
 #include "input-compat.h"
 
+#ifdef CONFIG_SHSYS_CUST
+#include <linux/vmalloc.h>
+#include <linux/mm.h>
+#endif
+
 struct evdev {
 	int open;
 	int minor;
@@ -274,7 +279,14 @@ static int evdev_release(struct inode *inode, struct file *file)
 	evdev_detach_client(evdev, client);
 	if (client->use_wake_lock)
 		wake_lock_destroy(&client->wake_lock);
+#ifdef CONFIG_SHSYS_CUST
+	if (is_vmalloc_addr(client))
+		vfree(client);
+	else
+		kfree(client);
+#else
 	kfree(client);
+#endif
 
 	evdev_close_device(evdev);
 	put_device(&evdev->dev);
@@ -315,6 +327,19 @@ static int evdev_open(struct inode *inode, struct file *file)
 
 	bufsize = evdev_compute_buffer_size(evdev->handle.dev);
 
+#if CONFIG_SHSYS_CUST
+	client = kzalloc(sizeof(struct evdev_client) +
+				bufsize * sizeof(struct input_event),
+			 GFP_KERNEL | __GFP_NOWARN);
+	if (!client) {
+		client = vzalloc(sizeof(struct evdev_client) +
+				bufsize * sizeof(struct input_event));
+	}
+	if (!client) {
+		error = -ENOMEM;
+		goto err_put_evdev;
+	}
+#else
 	client = kzalloc(sizeof(struct evdev_client) +
 				bufsize * sizeof(struct input_event),
 			 GFP_KERNEL);
@@ -322,6 +347,7 @@ static int evdev_open(struct inode *inode, struct file *file)
 		error = -ENOMEM;
 		goto err_put_evdev;
 	}
+#endif
 
 	client->clkid = CLOCK_MONOTONIC;
 	client->bufsize = bufsize;
@@ -342,7 +368,11 @@ static int evdev_open(struct inode *inode, struct file *file)
 
  err_free_client:
 	evdev_detach_client(evdev, client);
+#ifdef CONFIG_SHSYS_CUST
+	kvfree(client);
+#else
 	kfree(client);
+#endif
  err_put_evdev:
 	put_device(&evdev->dev);
 	return error;

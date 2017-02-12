@@ -1,0 +1,44 @@
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+&soc {
+	/*---------------------*/
+	/* BLSP1 QUP0(BLSP#1)  */
+	/*---------------------*/
+	blsp1_spi: spi@f9923000 {
+		spi-max-frequency = <50000000>;
+		mipi_spi@0 {
+			status = "disable";
+			compatible = "sharp,mipi_spi_0";
+			reg = <0>;
+			spi-max-frequency = <50000000>;
+			spi-cpol;
+			spi-cpha;
+			spi-cs-high;
+		};
+	};
+	
+	/*---------------------*/
+	/* LCD controller      */
+	/*---------------------*/    
+	sharp,shdisp_clmr {
+		compatible = "sharp,shdisp_clmr";
+		status = "disable";
+//		clmr_vdd_18rx-supply = <&pm8941_s3>;         // RX    Always with no necessity for operation because of ON 
+		clmr_vdd_18tx-supply = <&pm8941_lvs2>;       // TX
+		clmr_vdd_12lp-supply = <&pm8941_l2>;         // MIPI
+//		clmr_vdd_core-supply = <&pm8941_s1>;         // VDD   Always with no necessity for operation because of ON 
+		shdisp_clmr,reg-gpio = <&pm8941_gpios 19 0>; // VDD   switch
+		interrupts = <75 0>;
+		interrupt-parent = <&msmgpio>;
+	};
+};

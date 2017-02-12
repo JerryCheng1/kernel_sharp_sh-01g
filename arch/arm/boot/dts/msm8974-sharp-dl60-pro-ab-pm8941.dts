@@ -19,12 +19,17 @@
 
 / {
 	model = "sharp dl60 Pro-AA/AB CDP";
-	compatible = "qcom,sharp-dl63", "qcom,sharp-dl60", "qcom,msm8974", "qcom,cdp";
-	qcom,board-id = <53 0>,
-		        <56 0>;
+	compatible = "qcom,sharp-dl60", "qcom,msm8974", "qcom,cdp";
+	qcom,board-id = <53 0>;
 };
 
 &sdhc_1 {
 	qcom,pad-pull-on = <0x0 0x3 0x3 0x1>; /* no-pull, pull-up, pull-up, pull-down */
 	qcom,pad-pull-off = <0x0 0x3 0x3 0x1>; /* no-pull, pull-up, pull-up, pull-down */
 };
+
+&ehci {
+	hsusb_vdd_dig-supply = <&pm8841_s2_corner>;
+	qcom,vdd-voltage-level = <1 2 3 5 7>;
+};
+

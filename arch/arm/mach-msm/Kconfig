@@ -1138,12 +1138,6 @@ config MACH_FSM9XXX_SURF
 	  chipset based SURF evaluation board and
 	  FFA board.
 
-config MACH_WHAMU
-	depends on ARCH_MSM8974
-	bool "SHARP WHAMU"
-	help
-	  Support for Sharp WHAMU.
-
 config MACH_LYNX_DL50
 	depends on ARCH_MSM8974
 	bool "SHARP LYNX DL50"
@@ -1156,41 +1150,11 @@ config MACH_DECKARD_AS99
 	help
 	  Support for Sharp Deckard AS99.
 
-config MACH_EBZ
-	depends on ARCH_MSM8974
-	bool "SHARP EBZ"
-	help
-	  Support for Sharp ebz999zz.
-
-config MACH_LYNX_GP9D
-	depends on ARCH_MSM8974
-	bool "SHARP LYNX GP9D"
-	help
-	  Support for Sharp Lynx GP9D.
-
-config MACH_LYNX_DL63
-	depends on ARCH_MSM8974
-	bool "SHARP LYNX DL63"
-	help
-	  Support for Sharp Lynx DL63.
-
 config MACH_LYNX_DL60
 	depends on ARCH_MSM8974
 	bool "SHARP LYNX DL60"
 	help
 	  Support for Sharp Lynx DL60.
-
-config MACH_REN
-	depends on ARCH_MSM8974
-	bool "SHARP REN"
-	help
-	  Support for Sharp PA26.
-
-config MACH_DECKARD_AL15
-	depends on ARCH_MSM8974
-	bool "SHARP DECKARD AL15"
-	help
-	  Support for Sharp Deckard AL15.
 
 endmenu
 

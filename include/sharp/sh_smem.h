@@ -27,7 +27,13 @@
  */
 typedef struct 
 {
+#if defined(CONFIG_MACH_LYNX_DL60) || defined(FEATURE_SH_MODEL_DL60)
     unsigned long       shdisp_data_buf[548];        /* Buffer for shdisp */
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99) || defined(FEATURE_SH_MODEL_DL50) || defined(FEATURE_SH_MODEL_AS99)
+    unsigned long       shdisp_data_buf[38944];      /* Buffer for shdisp */
+#else
+    unsigned long       shdisp_data_buf[548];        /* Buffer for shdisp */
+#endif
     unsigned char       shusb_softupdate_mode_flag;  /* softupdate mode flag */
     unsigned long       sh_filesystem_init;          /* file system innitialize flag */
     int                 sh_sleep_test_mode;          /* sleep test mode flag */
@@ -70,10 +76,22 @@ typedef struct
     unsigned short      shdiag_cprx_offset_hl[12][2];/* CDC Proximity Sensor High/Low Offset Data */
     unsigned short      shdiag_cprx_cal_offset[12];  /* CDC Proximity Sensor Calibration Offset Data */
     unsigned char       shpwr_misc_param[21];        /* PWR:charge parameter */
+#if defined(CONFIG_MACH_LYNX_DL60) || defined(FEATURE_SH_MODEL_DL60)
     unsigned char       shpwr_traceability[22];      /* PWR:battery traceability */
     unsigned char       conf_mvno[2];                /* MVcode */
     unsigned char       shdiag_vib_param[9];         /* LINEAR VIBRATOR */
     unsigned short      sh_boot_hookmode;            /* kmsg hook mode */
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(FEATURE_SH_MODEL_DL50)
+    unsigned char       shcha_opid;                  /* CHA:OP parameter */
+#elif defined(CONFIG_MACH_DECKARD_AS99) || defined(FEATURE_SH_MODEL_AS99)
+    unsigned char       shcha_opid;                  /* CHA:OP parameter */
+    unsigned char       conf_mvno[2];                /* MVcode */
+#else
+    unsigned char       shpwr_traceability[22];      /* PWR:battery traceability */
+    unsigned char       conf_mvno[2];                /* MVcode */
+    unsigned char       shdiag_vib_param[9];         /* LINEAR VIBRATOR */
+    unsigned short      sh_boot_hookmode;            /* kmsg hook mode */
+#endif
 } sharp_smem_common_type;
 
 #define SH_SMEM_COMMON_SIZE 256000

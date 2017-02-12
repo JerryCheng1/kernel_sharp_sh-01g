@@ -39,12 +39,13 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/poll.h>
-#include <asm/gpio.h>
+//#include <asm/gpio.h>            /* SHMDS_HUB_0111_01 del */
 #include <linux/types.h>
 #include "ml630q790.h"
 #include <linux/sched.h>
-#include <linux/earlysuspend.h>
+//#include <linux/earlysuspend.h>  /* SHMDS_HUB_0111_01 del */
 #include <linux/miscdevice.h>
+#include <sharp/sh_boot_manager.h> /* SHMDS_HUB_0112_01 add */
 
 #define SSIO_MASK_WRITE              (0x7f)
 #define SSIO_MASK_READ               (0x80)
@@ -113,6 +114,7 @@ static int32_t spi_probe( struct spi_device *client )
 {
 /* SHMDS_HUB_0109_02 add S */
     int rc;
+    unsigned short hw_rev;      // SHMDS_HUB_0112_01 add
     struct device_node *np = client->dev.of_node;
     u32 temp_val;
     rc = of_property_read_u32(np, "shub,shub_acc_axis_val", &temp_val);
@@ -139,9 +141,25 @@ static int32_t spi_probe( struct spi_device *client )
         shub_mag_axis_val = 0;
     }
     else {
+// SHMDS_HUB_0112_01 add S
+       hw_rev = 0;
+#ifdef CONFIG_MAG_AXIS_CHK
+        hw_rev = sh_boot_get_hw_revision();
+        if(hw_rev == 0 || hw_rev == 1) {
+            // ES0 or ES1
+            shub_mag_axis_val = 1;
+        }
+        else {
+            shub_mag_axis_val = temp_val;
+        }
+#else
         shub_mag_axis_val = temp_val;
+#endif
+// SHMDS_HUB_0112_01 add E
     }
 /* SHMDS_HUB_0109_02 add E */
+
+    shub_set_gpio_no(client); /* SHMDS_HUB_0110_01 add */
 
     client_mcu = client;
     client_mcu->bits_per_word = 8;
@@ -150,6 +168,16 @@ static int32_t spi_probe( struct spi_device *client )
 
     return shub_probe();
 }
+
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_spi(struct seq_file *s)
+{
+    seq_printf(s, "[spi       ]");
+    seq_printf(s, "shub_acc_axis_val=%d, ",shub_acc_axis_val);
+    seq_printf(s, "shub_gyro_axis_val=%d, ",shub_gyro_axis_val);
+    seq_printf(s, "shub_mag_axis_val=%d\n",shub_mag_axis_val);
+}
+// SHMDS_HUB_0701_05 add E
 
 int32_t init_spi(void)
 {
@@ -180,11 +208,15 @@ int32_t hostif_write_proc(uint8_t adr, const uint8_t *data, uint16_t size)
 
     adr &= SSIO_MASK_WRITE;
 
+/* SHMDS_HUB_0110_02 del S */
+#ifndef SHUB_SW_PINCTRL
     ret = spi_setup(client_mcu);
     if(ret < 0) {
         printk("init SPI failed. ret=%x\n", ret);
         return ret;
     }
+#endif
+/* SHMDS_HUB_0110_02 del E */
     spi_message_init(&message);
 
     transfer.tx_buf = send_data;
@@ -217,11 +249,15 @@ int32_t hostif_read_proc(uint8_t adr, uint8_t *data, uint16_t size)
 
     adr |= SSIO_MASK_READ;
 
+/* SHMDS_HUB_0110_02 del S */
+#ifndef SHUB_SW_PINCTRL
     ret = spi_setup(client_mcu);
     if(ret < 0){
         printk("init SPI failed. ret=%x\n", ret);
         return ret;
     }
+#endif
+/* SHMDS_HUB_0110_02 del E */
     spi_message_init(&message);
 
     transfer[0].tx_buf = &adr;

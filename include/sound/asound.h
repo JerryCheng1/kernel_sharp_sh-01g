@@ -95,9 +95,10 @@ enum {
 	SNDRV_HWDEP_IFACE_SB_RC,	/* SB Extigy/Audigy2NX remote control */
 	SNDRV_HWDEP_IFACE_HDA,		/* HD-audio */
 	SNDRV_HWDEP_IFACE_USB_STREAM,	/* direct access to usb stream */
+        SNDRV_HWDEP_IFACE_AUDIO_CODEC,  /* codec Audio Control */
 
 	/* Don't forget to change the following: */
-	SNDRV_HWDEP_IFACE_LAST = SNDRV_HWDEP_IFACE_USB_STREAM
+	SNDRV_HWDEP_IFACE_LAST = SNDRV_HWDEP_IFACE_AUDIO_CODEC
 };
 
 struct snd_hwdep_info {
@@ -877,12 +878,12 @@ struct snd_ctl_tlv {
 	unsigned int tlv[0];	/* first TLV */
 };
 
-#ifdef CONFIG_SH_AUDIO_DRIVER /* 07-005 */
+/* SH_AUDIO_DRIVER -> */ /* 19-005 */
 struct snd_ctl_elem_hp_state {
 	unsigned int hp_state;
 	unsigned int button_state;
 };
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /* 07-005 */
+/* SH_AUDIO_DRIVER <- */ /* 19-005 */
 
 #define SNDRV_CTL_IOCTL_PVERSION	_IOR('U', 0x00, int)
 #define SNDRV_CTL_IOCTL_CARD_INFO	_IOR('U', 0x01, struct snd_ctl_card_info)
@@ -909,10 +910,10 @@ struct snd_ctl_elem_hp_state {
 #define SNDRV_CTL_IOCTL_RAWMIDI_PREFER_SUBDEVICE _IOW('U', 0x42, int)
 #define SNDRV_CTL_IOCTL_POWER		_IOWR('U', 0xd0, int)
 #define SNDRV_CTL_IOCTL_POWER_STATE	_IOR('U', 0xd1, int)
-#ifdef CONFIG_SH_AUDIO_DRIVER /* 07-005 */
+/* SH_AUDIO_DRIVER -> */ /* 19-005 */
 #define SNDRV_CTL_IOCTL_HP_STATE	_IOR('U', 0xe0, struct snd_ctl_elem_hp_state)
 #define SNDRV_CTL_IOCTL_SET_BIAS_MODE	_IOR('U', 0xf0, int)
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /* 07-005 */
+/* SH_AUDIO_DRIVER <- */ /* 19-005 */
 #ifdef CONFIG_SH_AUDIO_DRIVER /* 09-109 */
 #define SNDRV_CTL_IOCTL_SET_MODE_A2DP    _IOR('U', 0xf1, int)
 #endif /* CONFIG_SH_AUDIO_DRIVER *//* 09-109 */

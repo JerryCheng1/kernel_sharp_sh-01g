@@ -1489,7 +1489,6 @@ static int32_t __init shub_init(void)
         ret = PTR_ERR(pdev);
         goto out_driver;
     }
-//  printk(KERN_INFO "shub_io_diag: platform_device_register_simple\n"); // SHMDS_HUB_0106_06 del
 
     ret = misc_register(&shub_device);
     if (ret) {
@@ -1501,9 +1500,7 @@ static int32_t __init shub_init(void)
 
 exit_misc_device_register_failed:
     input_free_device(shub_idev);
-//  printk(KERN_INFO "shub_io_diag: input_free_polled_device\n"); // SHMDS_HUB_0106_06 del
     platform_device_unregister(pdev);
-//  printk(KERN_INFO "shub_io_diag: platform_device_unregister\n"); // SHMDS_HUB_0106_06 del
 out_driver:
     // out_region:
     return ret;
@@ -1512,13 +1509,9 @@ out_driver:
 static void __exit shub_exit(void)
 {
     misc_deregister(&shub_device);
-//  printk(KERN_INFO "shub_io_diag: misc_deregister\n"); // SHMDS_HUB_0106_06 del
     input_unregister_device(shub_idev);
-//  printk(KERN_INFO "shub_io_diag: input_unregister_polled_device\n"); // SHMDS_HUB_0106_06 del
     input_free_device(shub_idev);
-//  printk(KERN_INFO "shub_io_diag: input_free_polled_device\n"); // SHMDS_HUB_0106_06 del
     platform_device_unregister(pdev);
-//  printk(KERN_INFO "shub_io_diag: platform_device_unregister\n"); // SHMDS_HUB_0106_06 del
 }
 
 module_init(shub_init);

@@ -43,7 +43,13 @@ typedef struct {
 }IoCtlAccSetFirmwareVersion;
 
 typedef struct {
-  uint8_t *m_cData;
+// SHMDS_HUB_0305_01 mod S
+  union {
+    uint8_t *m_cData;
+    uint32_t m_cDataAddr;
+    uint64_t m_cDataDummy;
+  } u;
+// SHMDS_HUB_0305_01 mod E
   uint32_t m_nLen;
   bool     m_bBoot;
 }IoCtlAccSetFirmwareData;
@@ -184,6 +190,11 @@ typedef struct {
 
 #define SHUBIO_SIGNIFICANT_ACTIVATE _IOW(SHUBIO , 150 , int)
 
+// SHMDS_HUB_0304_01 add S
+#define SHUBIO_MCU_SET_OPENINFO     _IOW(SHUBIO , 160 , int)
+#define SHUBIO_MCU_GET_OPENINFO     _IOW(SHUBIO , 161 , int)
+// SHMDS_HUB_0304_01 add E
+
 #define SHUBIO_YAS533_SET_HW_OFFSET  _IOW(SHUBIO , 10000 , int)
 #define SHUBIO_YAS533_GET_HW_OFFSET  _IOW(SHUBIO , 10001 , int)
 #define SHUBIO_FUSION_GET_STATUS     _IOW(SHUBIO , 20000 , int)
@@ -249,7 +260,6 @@ struct IoctlDiagMagCalibration{
 #define SHUB_DIAG_FW_GET_VERSION    _IOR(SHUBIO,1012, struct IoctlDiagFirmwareVersion)
 #define SHUB_DIAG_FW_CHECKSUM       _IOR(SHUBIO,1013, struct IoctlDiagRes)
 #define SHUB_DIAG_GET_PORT_STATE    _IOWR(SHUBIO,1014, int)
-//#define SHUB_DIAG_FW_UPDATE         _IOR(SHUBIO,1015, int) // SHMDS_HUB_0107_03
 #define SHUB_DIAG_MES_ONLY_GYRO     _IOR(SHUBIO,1016, struct IoctlDiagRes)
 #define SHUB_DIAG_MES_ONLY_ACC      _IOR(SHUBIO,1017, struct IoctlDiagRes)
 #define SHUB_DIAG_CMD_WRITE         _IOWR(SHUBIO,1018, struct IoctlDiagCmdReq)

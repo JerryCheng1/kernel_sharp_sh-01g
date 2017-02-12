@@ -561,6 +561,20 @@ int shdisp_pm_API_is_als_active(void)
     }
 }
 
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_pm_API_is_active_als_user                                          */
+/* ------------------------------------------------------------------------- */
+int shdisp_pm_API_is_active_als_user(unsigned int user)
+{
+    if((user & shdisp_pm_ctx.psals_status.als_users) != 0) {
+        return SHDISP_DEV_STATE_ON;
+    } else {
+        return SHDISP_DEV_STATE_OFF;
+    }
+}
+#endif /* SHDISP_ALS_INT */
+
 #if defined(CONFIG_ANDROID_ENGINEERING)
 /* ------------------------------------------------------------------------- */
 /* shdisp_pm_API_power_manager_users_dump                                    */

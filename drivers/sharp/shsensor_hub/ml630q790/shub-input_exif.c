@@ -157,7 +157,9 @@ static int shub_exif_shex_acc_enable;
 static int shub_exif_delay_ms;
 static int shub_exif_notify_cont = 1;
 static int shub_exif_notify_info = 0;
-
+// SHMDS_HUB_0701_05 add S
+static int32_t shub_latest_ex_AccData[INDEX_SUM]= {0};
+// SHMDS_HUB_0701_05 add E
 static struct work_struct sensor_poll_work;
 static struct hrtimer poll_timer;
 /* SHMDS_HUB_0207_01 add S */
@@ -217,6 +219,27 @@ static int shub_vibe_notify_check(int kind)
     return check_ret;
 }
 // SHMDS_HUB_0208_01 add E
+
+/* SHMDS_HUB_0304_01 add S */
+void shub_exif_input_val_init(void)
+{
+    if(shub_idev[SHUB_EXIF_NOTIFY] == NULL){
+        DBG_EXIF_DATA("[shub]%s : shub_idev is Null!!", __func__);
+        return;
+    }
+    
+    if(shub_idev[SHUB_EXIF_NOTIFY]->absinfo == NULL){
+        DBG_EXIF_DATA("[shub]%s : absinfo is Null!!", __func__);
+        return;
+    }
+    
+/* SHMDS_HUB_0308_01 mod S */
+    shub_input_set_value(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, 0);
+//  shub_idev[SHUB_EXIF_NOTIFY]->absinfo[ABS_Y].value = 0;
+/* SHMDS_HUB_0308_01 mod E */
+    return;
+}
+/* SHMDS_HUB_0304_01 add E */
 
 /* SHMDS_HUB_0202_01 add S */
 static void shub_get_center_data(signed short *c_data)
@@ -461,15 +484,15 @@ static void shub_disable_internal_mot_det(void)
 
 static void shub_sensor_poll_work_func(struct work_struct *work)
 {
-    int32_t xyz[INDEX_SUM]= {0};
+//  int32_t xyz[INDEX_SUM]= {0};                                     // SHMDS_HUB_0701_05 del
 
     mutex_lock(&shub_exif_lock);
     shub_qos_start();    // SHMDS_HUB_1101_01 add
-    shub_get_sensors_data(SHUB_ACTIVE_ACC, xyz);
-    shub_input_report_exif_shex_acc(xyz);
+    shub_get_sensors_data(SHUB_ACTIVE_ACC, shub_latest_ex_AccData);  // SHMDS_HUB_0701_05 mod
+    shub_input_report_exif_shex_acc(shub_latest_ex_AccData);         // SHMDS_HUB_0701_05 mod
     shub_qos_end();      // SHMDS_HUB_1101_01 add
     mutex_unlock(&shub_exif_lock);
-    shub_check_mot_move(xyz);
+    shub_check_mot_move(shub_latest_ex_AccData);                     // SHMDS_HUB_0701_05 mod
 }
 
 static enum hrtimer_restart shub_sensor_poll(struct hrtimer *tm)
@@ -715,10 +738,11 @@ static long shub_exif_ioctl(struct file *filp, unsigned int cmd, unsigned long a
                     res.data[4] = (unsigned char)dt.m_iData[10];
                     res.data[5] = (unsigned char)dt.m_iData[11];
                     res.data[6] = (unsigned char)dt.m_iData[12];
+                    res.data[7] = (unsigned char)dt.m_iData[13];    // SHMDS_HUB_0209_02 add
                 }
                 mutex_unlock(&shub_exif_lock);
-                DBG_EXIF_IO("ioctl(cmd = Get_Adtect_Data) : delay=0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x\n",
-                            res.data[0],res.data[1],res.data[2],res.data[3],res.data[4],res.data[5],res.data[6]); // SHMDS_HUB_0701_01 add
+                DBG_EXIF_IO("ioctl(cmd = Get_Adtect_Data) : data=0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x\n",
+                            res.data[0],res.data[1],res.data[2],res.data[3],res.data[4],res.data[5],res.data[6],res.data[7]); // SHMDS_HUB_0701_01 add SHMDS_HUB_0209_02 mod
                 ret = copy_to_user(argp, &res, sizeof(struct IoctlExifData));
                 if (ret) {
                     printk("error : %s(cmd = SHUB_EXIF_GET_ADTECT_DATA) copy_to_user\n", __func__);
@@ -788,12 +812,13 @@ static void shub_input_report_exif_stat_det(int32_t *data)
     send_data |= (data[9] << 8) & 0xFF00;
     send_data |= (data[10] << 16) & 0xFF0000;
     send_data |= (data[11] << 24) & 0xFF000000;
+    SHUB_INPUT_VAL_CLEAR(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, shub_exif_notify_info);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RX, send_data);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RY, 0);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RZ, 0);
-    shub_idev[SHUB_EXIF_NOTIFY]->sync = 0;
+    shub_input_sync_init(shub_idev[SHUB_EXIF_NOTIFY]); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev[SHUB_EXIF_NOTIFY], EV_SYN, SYN_REPORT, 1);
     shub_exif_notify_info = 0;
     shub_change_notify_val(&shub_exif_notify_cont);
@@ -802,12 +827,13 @@ static void shub_input_report_exif_stat_det(int32_t *data)
 static void shub_input_report_exif_step_det(int32_t data)
 {
     DBG_EXIF_DATA("step_det : notify=0x%x step=%d(%d)\n", shub_exif_notify_info, data, shub_exif_notify_cont);
+    SHUB_INPUT_VAL_CLEAR(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, shub_exif_notify_info);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RX, 0);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RY, data);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RZ, 0);
-    shub_idev[SHUB_EXIF_NOTIFY]->sync = 0;
+    shub_input_sync_init(shub_idev[SHUB_EXIF_NOTIFY]); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev[SHUB_EXIF_NOTIFY], EV_SYN, SYN_REPORT, 1);
     shub_exif_notify_info = 0;
     shub_change_notify_val(&shub_exif_notify_cont);
@@ -816,12 +842,13 @@ static void shub_input_report_exif_step_det(int32_t data)
 static void shub_input_report_exif_stop_tm(int32_t data)
 {
     DBG_EXIF_DATA("stop_tm : notify=0x%x time=%d(%d)\n", shub_exif_notify_info, data, shub_exif_notify_cont);
+    SHUB_INPUT_VAL_CLEAR(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, shub_exif_notify_info);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RX, 0);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RY, 0);
     input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RZ, data);
-    shub_idev[SHUB_EXIF_NOTIFY]->sync = 0;
+    shub_input_sync_init(shub_idev[SHUB_EXIF_NOTIFY]); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev[SHUB_EXIF_NOTIFY], EV_SYN, SYN_REPORT, 1);
     shub_exif_notify_info = 0;
     shub_change_notify_val(&shub_exif_notify_cont);
@@ -835,19 +862,52 @@ void shub_input_report_exif_grav_det(bool send)
     }
 // SHMDS_HUB_0208_01 add E
     shub_exif_notify_info |= 0x08;
-    DBG_EXIF_DATA("grav_det : notify=0x%x send=%d(%d)\n", shub_exif_notify_info, send, shub_exif_notify_cont);
+    printk("[shub][exif] grav_det : notify=0x%x send=%d(%d)\n", shub_exif_notify_info, send, shub_exif_notify_cont);  // SHMDS_HUB_1901_01 mod
     if(send) {
+        SHUB_INPUT_VAL_CLEAR(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, shub_exif_notify_info);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RX, 0);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RY, 0);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RZ, 0);
-        shub_idev[SHUB_EXIF_NOTIFY]->sync = 0;
+        shub_input_sync_init(shub_idev[SHUB_EXIF_NOTIFY]); /* SHMDS_HUB_0602_01 mod */
         input_event(shub_idev[SHUB_EXIF_NOTIFY], EV_SYN, SYN_REPORT, 1);
         shub_exif_notify_info = 0;
         shub_change_notify_val(&shub_exif_notify_cont);
     }
 }
+
+/* SHMDS_HUB_0209_02 add S */
+void shub_input_report_exif_ride_pause_det(bool send, int32_t info)
+{
+    switch(info) {
+    case 1:     // Move
+        shub_exif_notify_info |= 0x80;
+        break;
+    case 2:     // Pause
+        shub_exif_notify_info |= 0x40;
+        break;
+    default:    // invalid
+        if(shub_exif_notify_info == 0) {
+            send = false;
+        }
+        break;
+    }
+    DBG_EXIF_DATA("ride_pause_det : notify=0x%x info=%d send=%d(%d)\n", shub_exif_notify_info, info, send, shub_exif_notify_cont);
+    if(send) {
+        SHUB_INPUT_VAL_CLEAR(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
+        input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont);
+        input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, shub_exif_notify_info);
+        input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RX, 0);
+        input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RY, 0);
+        input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RZ, 0);
+        shub_input_sync_init(shub_idev[SHUB_EXIF_NOTIFY]); /* SHMDS_HUB_0602_01 mod */
+        input_event(shub_idev[SHUB_EXIF_NOTIFY], EV_SYN, SYN_REPORT, 1);
+        shub_exif_notify_info = 0;
+        shub_change_notify_val(&shub_exif_notify_cont);
+    }
+}
+/* SHMDS_HUB_0209_02 add E */
 
 void shub_input_report_exif_mot_det(unsigned char det_info)
 {
@@ -884,12 +944,13 @@ void shub_input_report_exif_mot_det(unsigned char det_info)
     }
 // SHMDS_HUB_0208_01 add E
     if(shub_exif_notify_info != 0) {
+        SHUB_INPUT_VAL_CLEAR(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_X, shub_exif_notify_cont);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_Y, shub_exif_notify_info);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RX, 0);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RY, 0);
         input_report_abs(shub_idev[SHUB_EXIF_NOTIFY], ABS_RZ, 0);
-        shub_idev[SHUB_EXIF_NOTIFY]->sync = 0;
+        shub_input_sync_init(shub_idev[SHUB_EXIF_NOTIFY]); /* SHMDS_HUB_0602_01 mod */
         input_event(shub_idev[SHUB_EXIF_NOTIFY], EV_SYN, SYN_REPORT, 1);
         shub_exif_notify_info = 0;
         shub_change_notify_val(&shub_exif_notify_cont);
@@ -906,12 +967,13 @@ void shub_input_report_exif_shex_acc(int32_t *data)
 
     if(shub_exif_shex_acc_enable == 1){
         DBG_EXIF_DATA("shex_acc : x=%d y=%d z=%d\n", data[INDEX_X],  data[INDEX_Y],  data[INDEX_Z]);
+        SHUB_INPUT_VAL_CLEAR(shub_idev[SHUB_EXIF_ACC_SHEX], ABS_X, data[INDEX_X]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
         input_report_abs(shub_idev[SHUB_EXIF_ACC_SHEX], ABS_X, data[INDEX_X]);
         input_report_abs(shub_idev[SHUB_EXIF_ACC_SHEX], ABS_Y, data[INDEX_Y]);
         input_report_abs(shub_idev[SHUB_EXIF_ACC_SHEX], ABS_Z, data[INDEX_Z]);
         input_report_abs(shub_idev[SHUB_EXIF_ACC_SHEX], ABS_MISC, data[INDEX_TM]);
         input_report_abs(shub_idev[SHUB_EXIF_ACC_SHEX], ABS_VOLUME, data[INDEX_TMNS]);
-        shub_idev[SHUB_EXIF_ACC_SHEX]->sync = 0;
+        shub_input_sync_init(shub_idev[SHUB_EXIF_ACC_SHEX]); /* SHMDS_HUB_0602_01 mod */
         input_event(shub_idev[SHUB_EXIF_ACC_SHEX], EV_SYN, SYN_REPORT, 1);
     }
 }
@@ -1023,6 +1085,7 @@ int shub_set_default_parameter(void)
     param.m_iParam[4] = 6;  // SHMDS_HUB_0204_04 SHMDS_HUB_0204_06 mod ( 4->8->6 )
     param.m_iParam[5] = 10; // SHMDS_HUB_0204_04 SHMDS_HUB_0204_08 mod ( 10->12->10 )
     param.m_iParam[7] = 50;
+    param.m_iParam[8] = 90; // SHMDS_HUB_0204_11 add
     param.m_iParam[9] = 6;  // SHMDS_HUB_0204_08 mod ( 8->6 )
     param.m_iParam[10] = 0; // SHMDS_HUB_0204_04 mod ( 1->0 )
     param.m_iParam[11] = 2;
@@ -1065,9 +1128,9 @@ int shub_set_default_parameter(void)
     param.m_iParam[2] = 16;
     param.m_iParam[3] = 16;
     param.m_iParam[4] = 16;
-    param.m_iParam[5] = 150; // SHMDS_HUB_0204_03 mod (  96->150 )
-    param.m_iParam[6] = 150; // SHMDS_HUB_0204_03 mod (  96->150 )
-    param.m_iParam[7] = 250; // SHMDS_HUB_0204_03 mod ( 150->250 )
+    param.m_iParam[5] = 38; // SHMDS_HUB_0204_03 SHMDS_HUB_0204_09 mod (  96->150->38 )
+    param.m_iParam[6] = 38; // SHMDS_HUB_0204_03 SHMDS_HUB_0204_09 mod (  96->150->38 )
+    param.m_iParam[7] = 63; // SHMDS_HUB_0204_03 SHMDS_HUB_0204_09 mod ( 150->250->63 )
 /* SHMDS_HUB_0204_01 SHMDS_HUB_0204_02 mod E */
     param.m_iParam[9] |= 0x80;  // SHMDS_HUB_0206_01 add
     ret = shub_set_param(param.m_iType, param.m_iParam);
@@ -1100,8 +1163,16 @@ int shub_set_default_parameter(void)
         printk( "[shub]%s get VEICHLE_DETECTION2 error. ret=%d\n", __func__, ret);
         return ret;
     }
-    param.m_iParam[1] = 0x12C;
-    param.m_iParam[2] = 0x12C;
+    param.m_iParam[1] = 0x384;  // SHMDS_HUB_0204_12 mod ( 12c->384 )
+    param.m_iParam[2] = 0x384;  // SHMDS_HUB_0204_12 mod ( 12c->384 )
+/* SHMDS_HUB_0204_10 add S */
+    param.m_iParam[3] = 0x07;
+    param.m_iParam[4] = 6;      // SHMDS_HUB_0204_13 mod ( 10->6 )
+    param.m_iParam[5] = 20;     // SHMDS_HUB_0204_13 mod ( 30->20 )
+    param.m_iParam[6] = 0x07;
+    param.m_iParam[7] = 6;      // SHMDS_HUB_0204_13 mod ( 3->6 )
+    param.m_iParam[8] = 40;
+/* SHMDS_HUB_0204_10 add E */
     ret = shub_set_param(param.m_iType, param.m_iParam);
     if(ret != 0) {
         printk( "[shub]%s set VEICHLE_DETECTION2 error. ret=%d\n", __func__, ret);
@@ -1120,6 +1191,8 @@ int shub_set_default_parameter(void)
     param.m_iParam[1] = 20;     // SHMDS_HUB_0204_07 mod (  30->20 )
     param.m_iParam[3] = 1;
     param.m_iParam[5] = 20;     // SHMDS_HUB_0204_07 mod (  30->20 )
+    param.m_iParam[8] = 260;    // SHMDS_HUB_0204_11 add
+    param.m_iParam[9] = 1500;   // SHMDS_HUB_0204_11 add
     ret = shub_set_param(param.m_iType, param.m_iParam);
     if(ret != 0) {
         printk( "[shub]%s set APP_PEDOMETER2 error. ret=%d\n", __func__, ret);
@@ -1198,7 +1271,7 @@ void shub_suspend_exif(void)
         hrtimer_cancel(&poll_restart_ped_timer);
         mutex_lock(&shub_mutex_req);
         shub_check_ped_type |= TYPE_RESTART_NOW;    // SHMDS_HUB_0206_06 add
-        shub_stop_ped_onoff(1);
+        shub_stop_ped_onoff(2);                     // SHMDS_HUB_0206_07 mod
         shub_check_ped_type = 0;
         shub_enable_ped_exif_flg = 1;               // SHMDS_HUB_0206_06 add
         mutex_unlock(&shub_mutex_req);
@@ -1251,12 +1324,24 @@ static int shub_stop_ped_cmd_setting(int onoff, int iType, int idx)
             set_flg = 1;
         }
     }
-    else {
+/* SHMDS_HUB_0206_07 mod S */
+    else if(onoff == 1) {
         if((shub_ped_on_inf[idx] == 1) && (param.m_iParam[0] == 0)) {
             param.m_iParam[0] = 1;
             set_flg = 1;
         }
     }
+    else {
+        if((shub_ped_on_inf[idx] == 1) && (param.m_iParam[0] == 0)) {
+            param.m_iParam[0] = 1;
+            set_flg = 1;
+        }
+        else if((idx == SHUB_IDX_PEDO || idx == SHUB_IDX_TOTAL) && (param.m_iParam[0] == 0)) {
+            param.m_iParam[0] = 1;
+            set_flg = 1;
+        }
+    }
+/* SHMDS_HUB_0206_07 mod E */
     if(set_flg) {
         ret = shub_set_param(param.m_iType, param.m_iParam);
         if(ret != 0) {
@@ -1449,10 +1534,13 @@ void shub_set_param_check_exif(int type, int *data)
 
 void shub_get_param_check_exif(int type, int *data)
 {
-    if(shub_check_ped_type & TYPE_RESTART_NOW) {
-        return ;
-    }
-    if(shub_check_ped_type & TYPE_STOP_NOW) {
+/* SHMDS_HUB_0206_07 mod S */
+//  if(shub_check_ped_type & TYPE_RESTART_NOW) {
+//      return ;
+//  }
+//  if(shub_check_ped_type & TYPE_STOP_NOW) {
+    if(shub_check_ped_type & (TYPE_STOP_NOW | TYPE_RESTART_NOW)) {
+/* SHMDS_HUB_0206_07 mod E */
 #ifdef CONFIG_ANDROID_ENGINEERING
         int getData = data[0];
 #endif
@@ -1498,6 +1586,34 @@ static struct file_operations shub_fops = {
 };
 // SHMDS_HUB_1101_01 mod E
 
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_input_exif(struct seq_file *s)
+{
+    seq_printf(s, "[exif      ]shub_exif_notify_cont=%d\n",shub_exif_notify_cont);
+    seq_printf(s, "[exif      ]shub_exif_notify_info=%d\n",shub_exif_notify_info);
+    seq_printf(s, "[exif      ]shub_check_ped_type  =%d\n",shub_check_ped_type);
+    seq_printf(s, "[exif      ]shub_ped_on_inf ");
+    seq_printf(s, "[0]=%d, ",shub_ped_on_inf[0]);
+    seq_printf(s, "[1]=%d, ",shub_ped_on_inf[1]);
+    seq_printf(s, "[2]=%d, ",shub_ped_on_inf[2]);
+    seq_printf(s, "[3]=%d, ",shub_ped_on_inf[3]);
+    seq_printf(s, "[4]=%d\n",shub_ped_on_inf[4]);
+    
+    seq_printf(s, "[exif      ]shub_latest_ex_AccData ");
+    seq_printf(s, "[0]=%d, ",shub_latest_ex_AccData[0]);
+    seq_printf(s, "[1]=%d, ",shub_latest_ex_AccData[1]);
+    seq_printf(s, "[2]=%d, ",shub_latest_ex_AccData[2]);
+    seq_printf(s, "[3]=%d, ",shub_latest_ex_AccData[3]);
+    seq_printf(s, "[4]=%d\n",shub_latest_ex_AccData[4]);
+    
+    seq_printf(s, "[exif      ]shub_enable_ped_exif_flg=%d\n",shub_enable_ped_exif_flg);
+    seq_printf(s, "[exif      ]shub_check_suspend_restart=%d\n",shub_check_suspend_restart);
+    seq_printf(s, "[exif      ]shub_detect_mode_flg=%d\n",atomic_read(&shub_detect_mode_flg));
+    seq_printf(s, "[exif      ]shub_already_md_flg=%d\n",shub_already_md_flg);
+    seq_printf(s, "[exif      ]shub_not_notify_vibe_flg=%d\n",shub_not_notify_vibe_flg);
+}
+// SHMDS_HUB_0701_05 add E
+
 static struct miscdevice shub_exif_device = {
     .minor = MISC_DYNAMIC_MINOR,
     .name  = MISC_DEV_NAME_EXIF,
@@ -1511,13 +1627,13 @@ static int32_t __init shub_exif_init(void)
     int j;
     int32_t ret = 0;
 
-    // SHMDS_HUB_0108_02 add S
+    // SHMDS_HUB_0108_01 add S
     if(!shub_connect_check()){
         printk(KERN_INFO "shub_exif Connect Error!!\n");
         ret = -ENODEV;
         goto out_driver;
     }
-    // SHMDS_HUB_0108_02 add E
+    // SHMDS_HUB_0108_01 add E
 
     shub_exif_shex_acc_enable = 0;
     shub_exif_delay_ms = 240;

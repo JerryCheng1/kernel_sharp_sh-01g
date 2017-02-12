@@ -9,7 +9,7 @@ source "drivers/sharp/shdisp/Kconfig"
 source "drivers/sharp/shbatt/Kconfig"
 source "drivers/sharp/mfc/Kconfig"
 source "drivers/sharp/nfc/Kconfig"
-#source "drivers/sharp/shmds/Kconfig"
+source "drivers/sharp/shmds/Kconfig"
 source "drivers/sharp/shsensor_hub/ml630q790/Kconfig"
 
 #CONFIG_SH_AUDIO_DRIVER-> 06-007

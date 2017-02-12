@@ -268,11 +268,12 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 if(power_state != 0){
                     shub_logging_flush();
                     setMaxBatchReportLatency(SHUB_ACTIVE_SENSOR, batch_param.m_Latency);
-                    shub_idev->sync = 0;
-// SHMDS_HUB_0701_05 mod S
+                    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
+// SHMDS_HUB_0309_01 mod S
 //                  input_event(shub_idev, EV_SYN, SYN_REPORT, 2);
+                    shub_input_first_report(shub_idev, 1); /* SHMDS_HUB_0308_01 add */
                     input_event(shub_idev, EV_SYN, SYN_REPORT, (SHUB_INPUT_META_DATA | SHUB_INPUT_MAGUNC));
-// SHMDS_HUB_0701_05 mod E
+// SHMDS_HUB_0309_01 mod E
                 }else{
                     mutex_unlock(&shub_lock);
                     return -EFAULT;
@@ -300,6 +301,19 @@ static long shub_ioctl_wrapper(struct file *filp, unsigned int cmd, unsigned lon
 }
 // SHMDS_HUB_1101_01 add E
 
+/* SHMDS_HUB_0311_01 add S */
+static struct timespec shub_normal_last_ts;
+static struct timespec shub_local_ts;
+static struct timespec shub_get_timestamp(void)
+{
+    struct timespec ts;
+    ktime_get_ts(&ts);
+    monotonic_to_bootbased(&ts);
+    return ts;
+}
+static int64_t shub_local_ts_ns_old = 0;		/* SHMDS_HUB_0311_02 add */
+/* SHMDS_HUB_0311_01 add E */
+
 static void shub_sensor_poll_work_func(struct work_struct *work)
 {
     int32_t xyz[INDEX_SUM]= {0};
@@ -307,7 +321,44 @@ static void shub_sensor_poll_work_func(struct work_struct *work)
         mutex_lock(&shub_lock);
         shub_qos_start();    // SHMDS_HUB_1101_01 add
         shub_get_sensors_data(SHUB_ACTIVE_SENSOR, xyz);
-        shub_input_report_mag_uncal(xyz);
+/* SHMDS_HUB_0311_01 mod S */
+        if((shub_get_sensor_activate_info(SHUB_SAME_NOTIFY_MAG) == MAG_GROUP_MASK) && (shub_get_sensor_same_delay_flg(SHUB_SAME_NOTIFY_MAG) == 1)){
+            if(shub_get_sensor_first_measure_info(SHUB_SAME_NOTIFY_MAG) & SHUB_ACTIVE_SENSOR) {
+                int32_t xyz_mag[6]= {0};
+/* SHMDS_HUB_0311_02 mod S */
+                struct timespec tmp_ts;
+                int64_t local_ts_ns;
+                memcpy(&tmp_ts, &shub_local_ts, sizeof(struct timespec));
+                local_ts_ns = (int64_t)tmp_ts.tv_nsec + (int64_t)tmp_ts.tv_sec * 1000000000;
+                if( (shub_local_ts_ns_old < (local_ts_ns - delay * 600000)) && 
+				    (((int64_t)shub_normal_last_ts.tv_nsec + (int64_t)shub_normal_last_ts.tv_sec * 1000000000) < (local_ts_ns - delay * 600000)) ){
+/* SHMDS_HUB_0311_02 mod E */
+                    xyz[7] = tmp_ts.tv_sec;
+                    xyz[8] = tmp_ts.tv_nsec;
+                }
+                else {
+                    shub_qos_end();      // SHMDS_HUB_1101_01 add
+                    mutex_unlock(&shub_lock);
+                    return ;
+                }
+                xyz_mag[0] = xyz[0] - xyz[3];
+                xyz_mag[1] = xyz[1] - xyz[4];
+                xyz_mag[2] = xyz[2] - xyz[5];
+                xyz_mag[3] = xyz[6];
+                xyz_mag[4] = xyz[7];
+                xyz_mag[5] = xyz[8];
+                shub_input_report_mag(xyz_mag);
+                shub_input_report_mag_uncal(xyz);
+                shub_local_ts_ns_old = local_ts_ns;		/* SHMDS_HUB_0311_02 add */
+            }
+        }
+        else {
+            shub_normal_last_ts.tv_sec = xyz[7];
+            shub_normal_last_ts.tv_nsec = xyz[8];
+            shub_input_report_mag_uncal(xyz);
+            shub_local_ts_ns_old = 0;		/* SHMDS_HUB_0311_02 add */
+        }
+/* SHMDS_HUB_0311_01 mod E */
         shub_qos_end();      // SHMDS_HUB_1101_01 add
         mutex_unlock(&shub_lock);
     }
@@ -315,6 +366,7 @@ static void shub_sensor_poll_work_func(struct work_struct *work)
 
 static enum hrtimer_restart shub_sensor_poll(struct hrtimer *tm)
 {
+    shub_local_ts = shub_get_timestamp();       /* SHMDS_HUB_0311_01 add */
     schedule_work(&sensor_poll_work);
     hrtimer_forward_now(&poll_timer, ns_to_ktime((int64_t)delay * NSEC_PER_MSEC));
     return HRTIMER_RESTART;
@@ -356,6 +408,7 @@ void shub_input_report_mag_uncal(int32_t *data)
 // SHMDS_HUB_0701_01 add E
 
 #if 1  // SHMDS_HUB_0601_01 mod S
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_HAT1X, data[INDEX_X]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_HAT1X, data[INDEX_X]);
     input_report_abs(shub_idev, ABS_HAT1Y, data[INDEX_Y]);
     input_report_abs(shub_idev, ABS_HAT2X, data[INDEX_Z]);
@@ -365,9 +418,10 @@ void shub_input_report_mag_uncal(int32_t *data)
     input_report_abs(shub_idev, ABS_HAT0Y, data[INDEX_ACC]);
     input_report_abs(shub_idev, ABS_HAT3Y, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_HAT3X, data[INDEX_TMNS]);
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev, EV_SYN, SYN_REPORT, SHUB_INPUT_MAGUNC);
 #else
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_RX, data[INDEX_X]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_RX, data[INDEX_X]);
     input_report_abs(shub_idev, ABS_RY, data[INDEX_Y]);
     input_report_abs(shub_idev, ABS_RZ, data[INDEX_Z]);
@@ -377,7 +431,7 @@ void shub_input_report_mag_uncal(int32_t *data)
     input_report_abs(shub_idev, ABS_HAT0X, data[INDEX_ACC]);
     input_report_abs(shub_idev, ABS_MISC, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_VOLUME, data[INDEX_TMNS]);
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev, EV_SYN, SYN_REPORT, 1);
 #endif // SHMDS_HUB_0601_01 mod E
 }
@@ -394,7 +448,7 @@ static void shub_set_abs_params(void)
     input_set_abs_params(shub_idev, ABS_Y, MAGUNC_MIN, MAGUNC_MAX, 0, 0);
     input_set_abs_params(shub_idev, ABS_Z, MAGUNC_MIN, MAGUNC_MAX, 0, 0);
     input_set_abs_params(shub_idev, ABS_HAT0X, 0, 0xFF, 0, 0);
-
+    shub_set_param_first(shub_idev); /* SHMDS_HUB_0308_01 add */
 }
 #endif // SHMDS_HUB_0601_01 del E
 
@@ -405,6 +459,18 @@ static void shub_set_sensor_poll(int32_t en)
         hrtimer_start(&poll_timer, ns_to_ktime((int64_t)delay * NSEC_PER_MSEC), HRTIMER_MODE_REL);
     }
 }
+
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_input_mag_uncal(struct seq_file *s)
+{
+    seq_printf(s, "[mag_uncal ]");
+    seq_printf(s, "power_state=%d, ",power_state);
+    seq_printf(s, "delay=%d, ",delay);
+    seq_printf(s, "batch_param.m_Flasg=%d, ",batch_param.m_Flasg);
+    seq_printf(s, "batch_param.m_PeriodNs=%lld, ",batch_param.m_PeriodNs);
+    seq_printf(s, "batch_param.m_Latency=%lld\n",batch_param.m_Latency);
+}
+// SHMDS_HUB_0701_05 add E
 
 // SHMDS_HUB_1101_01 mod S
 static struct file_operations shub_fops = {

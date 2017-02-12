@@ -22,7 +22,6 @@ int miyabi_bprm_set_creds(struct linux_binprm *bprm);
 int miyabi_sb_umount(struct vfsmount *mnt, int flags);
 int miyabi_sb_pivotroot(struct path *old_path, struct path *new_path);
 int miyabi_path_symlink(struct path *dir, struct dentry *dentry, const char *old_name);
-int miyabi_path_link(struct dentry *old_dentry, struct path *new_dir, struct dentry *new_dentry);
 int miyabi_path_chmod(struct path* path, umode_t mode);
 int miyabi_path_chroot(struct path *path);
 int miyabi_task_fix_setuid(struct cred *new, const struct cred *old, int flags);

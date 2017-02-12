@@ -22,15 +22,17 @@
 
 #include <sharp/shdiag_smd.h>
 
-#include <mach/gpio.h>
-#include <mach/msm_iomap.h>
 #include <linux/io.h>
-
-#define SHDIAG_GPIO_CFG(n) (MSM_TLMM_BASE + 0x1000 + (0x10 * n))
+#include <linux/slab.h>
+#include <linux/mm.h>
+#include <linux/vmalloc.h>
 
 /* Soft Update Flag */
 #define D_SHSOFTUP_F_MASK	0x00000010		/* bit4 */
 #define D_SHSOFTUP_F_SHIFT	4
+
+static char		*buffer = NULL;
+static size_t	buffer_size = 0;
 
 static int smd_mode_open(struct inode *inode, struct file *filp)
 {
@@ -43,7 +45,7 @@ static ssize_t smd_mode_read(struct file *filp, char __user *buf,size_t count, l
 {
 	sharp_smem_common_type *p_sh_smem_common_type = NULL;
 	struct smem_comm_mode  smem_comm_data;
-	unsigned long UpDateFlgStatus;
+	uint32_t UpDateFlgStatus;
 
 /*	printk("%s\n", __func__);*/
 	if(count != sizeof(smem_comm_data)){
@@ -125,13 +127,13 @@ static int smd_ioctl_get_hw_revision(unsigned long arg)
 {
 	int ret = 0;
 	sharp_smem_common_type *sharp_smem;
-	unsigned long hw_revision;
+	uint32_t hw_revision;
 	
 	sharp_smem = sh_smem_get_common_address();
 	if( sharp_smem != 0 )
 	{
 		hw_revision = sharp_smem->sh_hw_revision;
-		if(copy_to_user((unsigned long __user *)arg, &hw_revision, sizeof(unsigned long)) != 0)
+		if(copy_to_user((uint32_t __user *)arg, &hw_revision, sizeof(uint32_t)) != 0)
 		{
 			printk("[SH]smd_ioctl_get_hw_revision: copy_to_user FAILE\n");
 			ret = -EFAULT;
@@ -164,64 +166,6 @@ static int smd_ioctl_set_hapticscal(unsigned long arg)
 	return ret;
 }
 
-static int smd_ioctl_set_gpio_pull(unsigned long arg)
-{
-	int ret = 0;
-	int gpio_ret = 0;
-	unsigned gpio_config = 0;
-	struct shdiag_gpio gpio_work;
-	int *cfg_reg;
-	int cfg_pull = 0;
-	int cfg_func = 0;
-	int cfg_drvstr = 0;
-	int cfg_dir = 0;
-	
-	if(copy_from_user(&gpio_work, (unsigned short __user *)arg, sizeof(struct shdiag_gpio)) != 0)
-	{
-		printk("[SH]smd_ioctl_set_gpio_pull: copy_to_user FAILE\n");
-		ret = -EFAULT;
-	}
-	else
-	{
-		printk("[SH]smd_ioctl_set_gpio_pull: port = %d pull = %d\n", (int)gpio_work.port, (int)gpio_work.pull);
-		
-		if( gpio_work.pull > GPIO_CFG_PULL_UP )
-		{
-			printk("[SH]smd_ioctl_set_gpio_pull: invalid value pull setting\n");
-			ret = -EFAULT;
-		}
-		else
-		{
-			/* get gpio config */
-			cfg_reg = SHDIAG_GPIO_CFG(gpio_work.port);
-			printk("[SH]smd_ioctl_set_gpio_pull: cfg_reg = %d *cfg_reg = %d\n", (int)cfg_reg, *cfg_reg);
-			
-			/* set pull */
-			cfg_pull = gpio_work.pull;
-			/* set func : 2-5bit */
-			cfg_func = ( *cfg_reg >> 2 ) & 0x0000000F;
-			/* set drvstr : 6-7bit */
-			cfg_drvstr = ( *cfg_reg >> 6 ) & 0x00000007;
-			/* set dir : 9bit */
-			cfg_dir = ( *cfg_reg >> 9 ) & 0x00000001;
-		
-			printk("[SH]smd_ioctl_set_gpio_pull: cfg_pull = %d cfg_func = %d cfg_drvstr = %d cfg_dir = %d\n", cfg_pull, cfg_func, cfg_drvstr, cfg_dir);
-			
-			/* set gpio config */
-			gpio_config = GPIO_CFG( gpio_work.port, cfg_func, cfg_dir, cfg_pull, cfg_drvstr );
-			
-			gpio_ret = gpio_tlmm_config( gpio_config, GPIO_CFG_ENABLE );
-			if( gpio_ret < 0 )
-			{
-				printk("[SH]smd_ioctl_set_gpio_pull: gpio_tlmm_config FAILE\n");
-				ret = -EFAULT;
-			}
-		}
-	}
-	
-	return ret;
-}
-
 static long smd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int ret;
@@ -239,9 +183,6 @@ static long smd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case SHDIAG_IOCTL_SET_HAPTICSCAL:
 		ret = smd_ioctl_set_hapticscal(arg);
 		break;
-	case SHDIAG_IOCTL_SET_GPIO_PULL:
-		ret = smd_ioctl_set_gpio_pull(arg);
-		break;
 	default:
 		printk("[SH]smd_ioctl: cmd FAILE\n");
 		ret = -EFAULT;
@@ -251,6 +192,79 @@ static long smd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
+static int create_buffer( unsigned long length )
+{
+
+	printk( KERN_ERR "%s : Start\n", __func__);
+
+	buffer_size = PAGE_ALIGN(length);
+
+	if(buffer == NULL)
+	{
+		if( (buffer = vmalloc(buffer_size)) == NULL )
+		{
+			printk("%s : Error vmalloc\n", __func__);
+			return -EFAULT;
+		}
+		
+		memset( (void *)buffer, 0x00, buffer_size );
+	}
+	else
+	{
+		printk( KERN_ERR "%s : Buffer Already Allocated \n", __func__);
+	}
+	return 0;
+}
+
+static int smd_read_mmap(struct file *filep, struct vm_area_struct *vma)
+{
+	int ret = 0;
+	unsigned long pfn = 0x00000000;
+	unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
+	unsigned long length = vma->vm_end - vma->vm_start;
+	unsigned long start = vma->vm_start;
+	unsigned long pos = 0;
+
+	ret = create_buffer( length );
+	if( ret != 0 )
+	{
+		printk( KERN_ERR "%s : Error Create Buffer \n", __func__);
+		return ret;
+	}
+	
+	if( (offset >= buffer_size) || (length > (buffer_size - offset)) )
+	{
+		printk( KERN_ERR "%s : Error EINVAL \n", __func__);
+		ret = -EINVAL;
+		return ret;
+	}
+
+	vma->vm_flags |= VM_SHARED;
+	while (length > 0)
+	{
+		pfn = vmalloc_to_pfn((void *)buffer + offset + pos);
+		if (remap_pfn_range(vma, start, pfn, PAGE_SIZE, PAGE_SHARED))
+		{
+		    printk( KERN_ERR "%s : Error fail to remap \n", __func__);
+			return -EAGAIN;
+		}
+
+		start += PAGE_SIZE;
+		pos += PAGE_SIZE;
+		if (length > PAGE_SIZE)
+		{
+			length -= PAGE_SIZE;
+		}
+		else
+		{
+			length = 0;
+		}
+	}
+
+	return ret;
+
+}
+
 static struct file_operations smd_mode_fops = {
 	.owner		= THIS_MODULE,
 	.read		= smd_mode_read,
@@ -258,6 +272,7 @@ static struct file_operations smd_mode_fops = {
 	.open		= smd_mode_open,
 	.release	= smd_mode_release,
 	.unlocked_ioctl = smd_ioctl,
+	.mmap		= smd_read_mmap,
 };
 
 static struct miscdevice smd_mode_dev = {

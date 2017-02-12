@@ -7,13 +7,6 @@ config SECURITY_MIYABI
 
 	  If you are unsure how to answer this question, answer N.
 
-config SECURITY_MIYABI_PTRACE_STRICT
-	bool "MIYABI strict ptrace"
-	depends on SECURITY_MIYABI
-	default n
-	help
-	  This disable ptrace.
-
 config SECURITY_MIYABI_CHROOT_PATH
 	string "chroot() enable PATH"
 	depends on SECURITY_MIYABI && SECURITY_PATH

@@ -264,11 +264,12 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 if(power_state != 0){
                     shub_logging_flush();
                     setMaxBatchReportLatency(SHUB_ACTIVE_SENSOR, batch_param.m_Latency);
-                    shub_idev->sync = 0;
-// SHMDS_HUB_0701_05 mod S
+                    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
+// SHMDS_HUB_0309_01 mod S
 //                  input_event(shub_idev, EV_SYN, SYN_REPORT, 2);
+                    shub_input_first_report(shub_idev, 1); /* SHMDS_HUB_0308_01 add */
                     input_event(shub_idev, EV_SYN, SYN_REPORT, (SHUB_INPUT_META_DATA | SHUB_INPUT_LINEARACC));
-// SHMDS_HUB_0701_05 mod E
+// SHMDS_HUB_0309_01 mod E
                 }else{
                     mutex_unlock(&shub_lock);
                     return -EFAULT;
@@ -346,20 +347,22 @@ void shub_input_report_linear(int32_t *data)
 // SHMDS_HUB_0701_01 add E
 
 #if 1  // SHMDS_HUB_0601_01 mod S
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_RX, data[INDEX_X]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_RX, data[INDEX_X]);
     input_report_abs(shub_idev, ABS_RY, data[INDEX_Y]);
     input_report_abs(shub_idev, ABS_RZ, data[INDEX_Z]);
     input_report_abs(shub_idev, ABS_HAT3Y, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_HAT3X, data[INDEX_TMNS]);
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev, EV_SYN, SYN_REPORT, SHUB_INPUT_LINEARACC);
 #else
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_X, data[INDEX_X]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_X, data[INDEX_X]);
     input_report_abs(shub_idev, ABS_Y, data[INDEX_Y]);
     input_report_abs(shub_idev, ABS_Z, data[INDEX_Z]);
     input_report_abs(shub_idev, ABS_MISC, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_VOLUME, data[INDEX_TMNS]);
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev, EV_SYN, SYN_REPORT, 1);
 #endif // SHMDS_HUB_0601_01 mod E
 }
@@ -372,6 +375,7 @@ static void shub_set_abs_params(void)
     input_set_abs_params(shub_idev, ABS_X, LINEACC_MIN, LINEACC_MAX, 0, 0);
     input_set_abs_params(shub_idev, ABS_Y, LINEACC_MIN, LINEACC_MAX, 0, 0);
     input_set_abs_params(shub_idev, ABS_Z, LINEACC_MIN, LINEACC_MAX, 0, 0);
+    shub_set_param_first(shub_idev); /* SHMDS_HUB_0308_01 add */
 }
 #endif // SHMDS_HUB_0601_01 del E
 
@@ -382,6 +386,18 @@ static void shub_set_sensor_poll(int32_t en)
         hrtimer_start(&poll_timer, ns_to_ktime((int64_t)delay * NSEC_PER_MSEC), HRTIMER_MODE_REL);
     }
 }
+
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_input_linear(struct seq_file *s)
+{
+    seq_printf(s, "[linear    ]");
+    seq_printf(s, "power_state=%d, ",power_state);
+    seq_printf(s, "delay=%d, ",delay);
+    seq_printf(s, "batch_param.m_Flasg=%d, ",batch_param.m_Flasg);
+    seq_printf(s, "batch_param.m_PeriodNs=%lld, ",batch_param.m_PeriodNs);
+    seq_printf(s, "batch_param.m_Latency=%lld\n",batch_param.m_Latency);
+}
+// SHMDS_HUB_0701_05 add E
 
 // SHMDS_HUB_1101_01 mod S
 static struct file_operations shub_fops = {

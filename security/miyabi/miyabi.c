@@ -27,8 +27,17 @@
 #include <linux/binfmts.h>
 #include <net/sock.h>
 
-//#include "miyabi_sandbox.h"
+//#ifdef CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD
+//#define MIYABI_DEBUG_LOG
+//#endif
 
+#ifdef MIYABI_DEBUG_LOG
+#define MIYABI_LOGE(fmt, args...) { \
+    printk("[MIYABI]" fmt, ## args); \
+}
+#else
+#define MIYABI_LOGE(fmt, args...)
+#endif
 
 static void record_rooted(void)
 {
@@ -41,6 +50,7 @@ static void record_rooted(void)
 
 int miyabi_ptrace_access_check(struct task_struct *child, unsigned int mode)
 {
+	MIYABI_LOGE("%s\n", __FUNCTION__); 
 #ifdef CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD
 	return 0;
 #else /* ! CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD */
@@ -50,6 +60,7 @@ int miyabi_ptrace_access_check(struct task_struct *child, unsigned int mode)
 
 int miyabi_ptrace_traceme(struct task_struct *parent)
 {
+	MIYABI_LOGE("%s\n", __FUNCTION__); 
 #ifdef CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD
 	return 0;
 #else /* ! CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD */
@@ -108,6 +119,8 @@ int miyabi_bprm_set_creds(struct linux_binprm *bprm)
 		if(!permitted_prog(set_creds_wh, bprm->filename))
 		{
 			record_rooted();
+			MIYABI_LOGE("%s filename=%s\n", __FUNCTION__, bprm->filename);
+
 			return -EPERM;
 		}
 	}
@@ -290,7 +303,7 @@ int miyabi_sb_mount(char *dev_name, struct path *path,
 			if ((flags & MS_REMOUNT) && (!(flags & MS_RDONLY)))
 			{
 				printk(KERN_ERR "%s: REJECT dev_name=%s cannot remount as writable\n", __FUNCTION__, dev_name);
-
+				MIYABI_LOGE("%s dev_name=%s type=%s flags=%08lXn", __FUNCTION__, dev_name, type, flags);
 				return -EPERM;
 			}
 		}
@@ -336,6 +349,8 @@ int miyabi_sb_mount(char *dev_name, struct path *path,
 			if ((flags & MS_BIND) && (flags & MS_REMOUNT) && (flags & MS_NOSUID) && (flags & MS_NODEV) && (flags & MS_RDONLY))
 			{
 				kfree(realpath);
+				MIYABI_LOGE("%s dev_name=%s type=%s flags=%08lX permit remount\n", __FUNCTION__, dev_name, type, flags); 
+
 				return 0;
 			}
 
@@ -352,6 +367,7 @@ int miyabi_sb_mount(char *dev_name, struct path *path,
 
 			if( bdev == NULL )
 			{
+				MIYABI_LOGE("%s cannot lookup %s\n", __FUNCTION__, dev_name);
 				printk("cannot lookup\n");
 
 				kfree(realpath);
@@ -496,6 +512,8 @@ int miyabi_sb_pivotroot(struct path *old_path, struct path *new_path)
 	old_realpath = _xx_realpath_from_path(old_path);
 	if(old_realpath == NULL)
 	{
+		MIYABI_LOGE("%s old_realpath=NULL\n", __FUNCTION__); 
+
 		return -ENOMEM;
 	}
 
@@ -503,6 +521,7 @@ int miyabi_sb_pivotroot(struct path *old_path, struct path *new_path)
 	if(new_realpath == NULL)
 	{
 		kfree(old_realpath);
+		MIYABI_LOGE("%s new_realpath=NULL\n", __FUNCTION__); 
 		return -ENOMEM;
 	}
 
@@ -523,7 +542,10 @@ int miyabi_path_symlink(struct path *dir, struct dentry *dentry, const char *old
 
 	realdir = _xx_realpath_from_path(dir);
 
-	if (realdir == NULL) return -ENOMEM;
+	if (realdir == NULL) {
+		MIYABI_LOGE("%s realdir=NULL\n", __FUNCTION__); 
+		return -ENOMEM;
+	}
 
 	if(strncmp(realdir, CONFIG_SECURITY_MIYABI_SYSTEM_DIR_PATH,
 		    strlen(CONFIG_SECURITY_MIYABI_SYSTEM_DIR_PATH)) == 0)
@@ -569,11 +591,6 @@ int miyabi_path_symlink(struct path *dir, struct dentry *dentry, const char *old
 	return 0;
 }
 
-int miyabi_path_link(struct dentry *old_dentry, struct path *new_dir, struct dentry *new_dentry)
-{
-	return -EPERM;
-}
-
 int miyabi_path_chmod(struct path* path, umode_t mode)
 {
 #ifndef CONFIG_ANDROID_ENGINEERING
@@ -592,6 +609,7 @@ int miyabi_path_chmod(struct path* path, umode_t mode)
 		if(inode->i_uid == 0 && cred->euid == 0)
 		{
 			record_rooted();
+			MIYABI_LOGE("%s uid=euid=0\n", __FUNCTION__);
 			return -EPERM;
 		}
 	}
@@ -600,6 +618,7 @@ int miyabi_path_chmod(struct path* path, umode_t mode)
 		if(inode->i_gid == 0 && cred->egid == 0)
 		{
 			record_rooted();
+			MIYABI_LOGE("%s gid=egid=0\n", __FUNCTION__);
 			return -EPERM;
 		}
 	}
@@ -624,7 +643,10 @@ int miyabi_path_chroot(struct path *path)
 
 	tmp = kmalloc(PATH_MAX + 1, GFP_KERNEL);
 
-	if(tmp == NULL) return -ENOMEM;
+	if(tmp == NULL) {
+		MIYABI_LOGE("%s mem error\n", __FUNCTION__);
+		return -ENOMEM;
+	}
 
 	memset(tmp, 0, PATH_MAX + 1);
 
@@ -633,8 +655,10 @@ int miyabi_path_chroot(struct path *path)
 	if (realpath == NULL)
 	{
 		kfree(tmp);
+		MIYABI_LOGE("%s realpath=null\n", __FUNCTION__);
 		return -ENOMEM;
 	}
+	MIYABI_LOGE("%s realpath=%s\n", __FUNCTION__, realpath);
 
 	p = CONFIG_SECURITY_MIYABI_CHROOT_PATH;
 
@@ -669,6 +693,7 @@ int miyabi_path_chroot(struct path *path)
 		}
 	}
 
+	MIYABI_LOGE("%s realpath=%s\n", __FUNCTION__, realpath);
 	kfree(realpath);
 	kfree(tmp);
 
@@ -727,14 +752,14 @@ int miyabi_task_fix_setuid(struct cred *new, const struct cred *old, int flags)
 		path = miyabi_get_current_process(pathbuff, PATH_MAX);
 
 		if (path == NULL || (long)path == ENAMETOOLONG ) {
-//			printk("%s error on miyabi_get_current_process.\n", __FUNCTION__);
+			MIYABI_LOGE("%s path=null\n", __FUNCTION__);
 			kfree(pathbuff);
 			return -EPERM;
 		}
 //		printk("%s res =%08X, path=%s\n", __FUNCTION__, (unsigned int)path, path);
 
 		if (!permitted_prog(task_fix_setuid_wh, path)) {
-//			printk("%s denied!\n", __FUNCTION__);
+			MIYABI_LOGE("%s path=%s denied\n", __FUNCTION__, path);
 			kfree(pathbuff);
 			return -EPERM;
 		}
@@ -755,6 +780,7 @@ static struct vec setsockopt_wh[] =
 	{ "/system/bin/rild" },
 	{ "/system/bin/netd" },
 	{ "/system/bin/netmgrd" },
+	{ "/system/bin/sh" },
 #ifdef CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD
 	{ "/system/bin/mksh" },
 	{ "/sbin/adbd" },
@@ -782,6 +808,8 @@ int miyabi_socket_setsockopt(struct socket *sock, int level, int optname)
 
 		if(path == NULL || (long)path == ENAMETOOLONG)
 		{
+			MIYABI_LOGE("%s path=null\n", __FUNCTION__);
+
 			kfree(pathbuff);
 			return -EPERM;
 		}
@@ -791,13 +819,18 @@ int miyabi_socket_setsockopt(struct socket *sock, int level, int optname)
 			!(strlen(path) == strlen(LOCAL_MIYABI_IP6TABLE_PATH) && strcmp(path, LOCAL_MIYABI_IP6TABLE_PATH) == 0)
 		)
 		{
+			MIYABI_LOGE("%s path=%s denied\n", __FUNCTION__, path);
+
 			kfree(pathbuff);
 			return -EPERM;
 		}
+		MIYABI_LOGE("%s path=%s\n", __FUNCTION__, path);
+
 		
 		if(current->parent == NULL)
 		{
 			kfree(pathbuff);
+			MIYABI_LOGE("%s parent=null denied\n", __FUNCTION__);
 			return -EPERM;
 		}
 
@@ -811,14 +844,18 @@ int miyabi_socket_setsockopt(struct socket *sock, int level, int optname)
 
 		if(path == NULL || (long)path == ENAMETOOLONG)
 		{
+			MIYABI_LOGE("%s parent path=null denied\n", __FUNCTION__);
 			kfree(pathbuff);
 			return -EPERM;
 		}
 
 		if (permitted_prog(setsockopt_wh, path)) {
+			MIYABI_LOGE("%s parent path=%s permitted\n", __FUNCTION__, path);
+
 			kfree(pathbuff);
 			return 0;
 		}
+		MIYABI_LOGE("%s parent path=%s denied\n", __FUNCTION__, path);
 
 		kfree(pathbuff);
 		return -EPERM;
@@ -832,6 +869,7 @@ int miyabi_socket_setsockopt(struct socket *sock, int level, int optname)
 
 int miyabi_dentry_open(struct file *file, const struct cred *cred)
 {
+#if 0
 #ifndef CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD
 #ifndef LOCAL_MIYABI_FBUILD
 	dev_t major;
@@ -846,30 +884,36 @@ int miyabi_dentry_open(struct file *file, const struct cred *cred)
 			((major == CONFIG_SECURITY_MIYABI_FACTORY_DEV_MAJOR) && (minor == CONFIG_SECURITY_MIYABI_FACTORY_DEV_MINOR))
 		)
 		{
+#ifdef MIYABI_DEBUG_LOG
+			char *pathbuff = NULL;
+			char *path = NULL;
+
+			pathbuff = kmalloc(PATH_MAX + 1, GFP_KERNEL);
+			if(pathbuff == NULL) {
+				MIYABI_LOGE("%s failed to kmalloc path buffer\n", __FUNCTION__);
+				goto NEXT;
+			}
+
+			memset(pathbuff, 0, PATH_MAX + 1);
+
+			path = miyabi_get_current_process(pathbuff, PATH_MAX);
+
+			if (path == NULL || (long)path == ENAMETOOLONG ) {
+				MIYABI_LOGE("%s error on miyabi_get_current_process.\n", __FUNCTION__);
+				kfree(pathbuff);
+				goto NEXT;
+			}
+			MIYABI_LOGE("%s res =%08lX, path=%s\n", __FUNCTION__, (unsigned long)path, path);
+			kfree(pathbuff);
+NEXT:
+#endif /* MIYABI_DEBUG_LOG */
 			printk("reject opening device %d / %d\n", major, minor);
 
 			return -EPERM;
 		}
 	}
-#if 0
-	else if(S_ISREG(file->f_dentry->d_inode->i_mode) || S_ISDIR(file->f_dentry->d_inode->i_mode))
-	{
-#ifndef CONFIG_ANDROID_RECOVERY_BUILD
-		major = MAJOR(file->f_vfsmnt->mnt_sb->s_dev);
-		minor = MINOR(file->f_vfsmnt->mnt_sb->s_dev);
-
-		if((major == CONFIG_SECURITY_MIYABI_SYSTEM_DEV_MAJOR) && (minor == CONFIG_SECURITY_MIYABI_SYSTEM_DEV_MINOR))
-		{
-			return miyabi_sandbox_dentry_open(file, cred, D_MIYABISANDBOX_SYSTEM);
-		}
-		else if((major == CONFIG_SECURITY_MIYABI_FACTORY_DEV_MAJOR) && (minor == CONFIG_SECURITY_MIYABI_FACTORY_DEV_MINOR))
-		{
-			return miyabi_sandbox_dentry_open(file, cred, D_MIYABISANDBOX_FACTORY);
-		}
-#endif /* ! CONFIG_ANDROID_RECOVERY_BUILD */
-	}
-#endif
 #endif /* ! LOCAL_MIYABI_FBUILD */
 #endif /* ! CONFIG_SECURITY_MIYABI_ENGINEERING_BUILD */
+#endif
 	return 0;
 }

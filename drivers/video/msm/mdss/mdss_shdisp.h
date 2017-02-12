@@ -42,6 +42,12 @@ extern void mdss_shdisp_bkl_ctl( u32 bl_level );
 extern int mdss_shdisp_is_disp_on( void );
 extern void mdss_shdisp_tri_led_set_color(char red, char green, char blue);
 
+#ifdef CONFIG_SHDISP /* CUST_ID_00042 */
+#ifdef CONFIG_USES_SHLCDC
+extern int mdss_shdisp_pll_ctl(int ctl);
+#endif /* CONFIG_USES_SHLCDC */
+#endif /* CONFIG_SHDISP */
+
 extern void mdss_shdisp_shutdown( void );
 extern void mdss_shdisp_video_transfer_ctrl_set_flg(struct msm_fb_data_type *mfd, int change);
 extern int mdss_shdisp_video_transfer_ctrl_kickoff(struct msm_fb_data_type *mfd, int onoff);

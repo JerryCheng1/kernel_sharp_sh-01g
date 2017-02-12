@@ -117,6 +117,7 @@ static void do_vfree(struct work_struct *work)
 	vfree(work);
 }
 
+#ifndef CONFIG_SHSYS_CUST
 /**
  * kvfree - free an allocation do by kvmalloc
  * @buffer: buffer to free (MAYBE_NULL)
@@ -135,3 +136,4 @@ void kvfree(void *buffer)
 	} else
 		kfree(buffer);
 }
+#endif

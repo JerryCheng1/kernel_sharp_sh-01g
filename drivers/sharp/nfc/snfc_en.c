@@ -66,8 +66,9 @@
 /* VREG(power) enable/disable */
 #define D_VREG_DISABLE 			(0)
 #define D_VREG_ENABLE 			(1)
-#define D_VREG_INTERVAL_USEC	1000
 
+#define D_SEC_INTERVAL_USEC 1000
+#define D_SH_INTERVAL_USEC 1000
 
 #define SEC_NFC_VEN_WAIT_TIME 100
 
@@ -141,14 +142,6 @@ static void snfc_output_disable(int sw)
 {
 	NFC_DRV_DBG_LOG("START");
 
-	/* UART */
-	gpio_tlmm_config(GPIO_CFG(D_UART_TX_GPIO_NO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
-	gpio_tlmm_config(GPIO_CFG(D_UART_RX_GPIO_NO, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
-	gpio_tlmm_config(GPIO_CFG(D_UART_CTS_GPIO_NO, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 1);
-	gpio_tlmm_config(GPIO_CFG(D_UART_RTS_GPIO_NO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
-	gpio_set_value(D_UART_TX_GPIO_NO, 0);
-	gpio_set_value(D_UART_RTS_GPIO_NO, 0);
-
 	/* WAKEUP */
 	snfc_gpio_free(D_WAKEUP_GPIO_NO);
 
@@ -156,20 +149,35 @@ static void snfc_output_disable(int sw)
 	gpio_set_value(D_FIRM_GPIO_NO, 0);
 
 	if(sw){
+
+		/* UART */
+		gpio_tlmm_config(GPIO_CFG(D_UART_TX_GPIO_NO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+		gpio_tlmm_config(GPIO_CFG(D_UART_RX_GPIO_NO, 0, GPIO_CFG_INPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+		gpio_tlmm_config(GPIO_CFG(D_UART_CTS_GPIO_NO, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), 1);
+		gpio_tlmm_config(GPIO_CFG(D_UART_RTS_GPIO_NO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), 1);
+		gpio_set_value(D_UART_TX_GPIO_NO, 0);
+		gpio_set_value(D_UART_RTS_GPIO_NO, 0);
+
+		usleep(D_SH_INTERVAL_USEC);
+
+		/* TVDD */
+		snfc_tvdd_vreg_enable(D_VREG_DISABLE);
+
+		usleep(D_SH_INTERVAL_USEC);
+
 		/* PVDD */
 		snfc_pvdd_vreg_enable(D_VREG_DISABLE);
 
-		usleep(D_VREG_INTERVAL_USEC);
+		usleep(D_SEC_INTERVAL_USEC);
 
 		/* VEN */
 		gpio_set_value(D_VEN_GPIO_NO, 0);
 
+		usleep(D_SH_INTERVAL_USEC);
+
 		/* AVDD */
 		snfc_avdd_vreg_enable(D_VREG_DISABLE);
 	}
-
-	/* TVDD */
-	snfc_tvdd_vreg_enable(D_VREG_DISABLE);
 
 	g_snfc_en_state = D_SNFC_DISABLE;
 	g_snfc_powctrl_flg = D_POWCTRL_FLG_FALSE;
@@ -191,11 +199,14 @@ static void snfc_output_enable(void)
 
 	snfc_change_wakeup_mode(D_WAKEUP_STATE_UP);
 
+	/* AVDD */
+	snfc_avdd_vreg_enable(D_VREG_ENABLE);
+
+	usleep(D_SEC_INTERVAL_USEC);
 	/* PVDD */
 	snfc_pvdd_vreg_enable(D_VREG_ENABLE);
 
-	/* AVDD */
-	snfc_avdd_vreg_enable(D_VREG_ENABLE);
+	usleep(D_SEC_INTERVAL_USEC);
 
 	/* TVDD */
 	snfc_tvdd_vreg_enable(D_VREG_ENABLE);

@@ -87,7 +87,7 @@ static irqreturn_t sec_nfc_fn_push_thread_fn(int irq, void *dev_id)
 
 	if(!wake_lock_active(&g_wake_lock))
 	{
-		NFC_DRV_ERR_LOG("\n %s: Set wake_lock_timeout for 800 msec. !!!\n", __func__);
+		NFC_DRV_DBG_LOG("Set wake_lock_timeout for 800 msec. !!!");
 		wake_lock_timeout(&g_wake_lock,((HZ*4)/5));
 	}
 	return IRQ_HANDLED;

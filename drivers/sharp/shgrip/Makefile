@@ -2,8 +2,10 @@ ifneq (, $(filter F%, $(SH_BUILD_ID)))
 EXTRA_CFLAGS += -DSHGRIP_FACTORY_MODE_ENABLE
 endif
 
-ifeq ($(CONFIG_MACH_REN),y)
-obj-$(CONFIG_SENSOR_SHGRIP) += 002/
-else
-obj-$(CONFIG_SENSOR_SHGRIP)	+= 001/
+ifeq ($(CONFIG_SENSOR_SHGRIP_MODEL1),y)
+obj-$(CONFIG_SENSOR_SHGRIP) += 001/model1/
+else ifeq ($(CONFIG_SENSOR_SHGRIP_MODEL2),y)
+obj-$(CONFIG_SENSOR_SHGRIP) += 001/model2/
+else ($(CONFIG_SENSOR_SHGRIP_MODEL3),y)
+obj-$(CONFIG_SENSOR_SHGRIP) += 001/model3/
 endif

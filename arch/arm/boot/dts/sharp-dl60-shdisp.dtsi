@@ -28,10 +28,6 @@
 	qcom,mdss-pref-prim-intf = "dsi";
 };
 
-&mdss_fb0 {
-	qcom,memory-reservation-size = <0xFF0000>;
-};
-
 &dsi_shdisp_andy {
 	status = "ok";
 
@@ -52,5 +48,20 @@
 
 &mdss_dsi1 {
 	/delete-property/ vdd-supply;
+};
+
+/ {
+	memory {
+		display_mem: display_mem@0 {
+			linux,contiguous-region;
+			linux,reserve-region;
+			reg = <0 0x00FF0000>;
+			label = "display_mem";
+		};
+	};
+};
+
+&mdss_fb0 {
+	linux,contiguous-region = <&display_mem>;
 };
 

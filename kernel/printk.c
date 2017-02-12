@@ -98,7 +98,9 @@ static bool     first_read     = false;
 static unsigned boot_log_que_count = 0;
 static struct workqueue_struct *printk_wq = NULL;
 static char *filename = "/dev/block/platform/msm_sdcc.1/by-name/mjupd_work";
+#ifdef CONFIG_MACH_LYNX_DL60
 static sharp_smem_common_type *p_sharp_smem_common_type = NULL;
+#endif
 
 /*
  * Set hook_enable from Bootlog Header.
@@ -106,10 +108,12 @@ static sharp_smem_common_type *p_sharp_smem_common_type = NULL;
  */
 void set_hook_enable(void)
 {
+#ifdef CONFIG_MACH_LYNX_DL60
 	p_sharp_smem_common_type = sh_smem_get_common_address();
 	if(p_sharp_smem_common_type != NULL) {
 		hook_enable = p_sharp_smem_common_type->sh_boot_hookmode;
 	}
+#endif
 }
 EXPORT_SYMBOL(set_hook_enable);
 

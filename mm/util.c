@@ -11,6 +11,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/kmem.h>
 
+#ifdef CONFIG_SHSYS_CUST
+#include <linux/vmalloc.h>
+#endif
+
 /**
  * kstrdup - allocate space for and copy an existing string
  * @s: the string to duplicate
@@ -340,6 +344,17 @@ int __attribute__((weak)) get_user_pages_fast(unsigned long start,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(get_user_pages_fast);
+
+#ifdef CONFIG_SHSYS_CUST
+void kvfree(const void *addr)
+{
+	if (is_vmalloc_addr(addr))
+		vfree(addr);
+	else
+		kfree(addr);
+}
+EXPORT_SYMBOL(kvfree);
+#endif
 
 /* Tracepoints definitions. */
 EXPORT_TRACEPOINT_SYMBOL(kmalloc);

@@ -16,6 +16,7 @@
 #define SH_KMOD_SHA256_HASH__
 
 static const unsigned char kmod_sha256_hash[][32] = {
+#include "wlan.hash"
 #include "shexfat.hash"
 };
 

@@ -854,6 +854,7 @@ struct qpnp_vadc_chan_properties {
 	enum qpnp_adc_meas_timer_2		meas_interval2;
 	enum qpnp_adc_tm_channel_select		tm_channel_select;
 	enum qpnp_state_request			state_request;
+	enum qpnp_adc_calib_type		calib_type;
 	struct qpnp_vadc_linear_graph	adc_graph[2];
 };
 
@@ -900,6 +901,7 @@ struct qpnp_adc_amux {
 	enum qpnp_adc_scale_fn_type		adc_scale_fn;
 	enum qpnp_adc_fast_avg_ctl		fast_avg_setup;
 	enum qpnp_adc_hw_settle_time		hw_settle_time;
+	enum qpnp_adc_calib_type		calib_type;
 #ifdef CONFIG_BATTERY_SH
 	enum sh_qpnp_adc_scale_fn_type		sh_adc_scale_fn;
 #endif /* CONFIG_BATTERY_SH */

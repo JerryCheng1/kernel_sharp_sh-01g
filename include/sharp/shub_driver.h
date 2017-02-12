@@ -25,12 +25,25 @@ enum {
     NUM_SHUB_STOP_PED_TYPE
 };
 
+/* ------------------------------------------------------------------------- */
+/* STRUCT                                                                    */
+/* ------------------------------------------------------------------------- */
+// SHMDS_HUB_1301_01 add S
+struct shub_face_acc_info {
+    int nJudge;
+    int nStat;
+    int32_t nX;
+    int32_t nY;
+    int32_t nZ;
+};
+// SHMDS_HUB_1301_01 add E
 
 /* ------------------------------------------------------------------------- */
 /* PROTOTYPES                                                                */
 /* ------------------------------------------------------------------------- */
 int shub_api_stop_pedometer_func (int type);
 int shub_api_restart_pedometer_func (int type);
-
+int shub_api_get_face_down_info(struct shub_face_acc_info *info);  /* SHMDS_HUB_1301_01 add */
+int shub_api_get_face_check_info(struct shub_face_acc_info *info); /* SHMDS_HUB_1302_01 add */
 
 #endif /* SHUB_DRIVER_H */

@@ -25,10 +25,6 @@ module_param_named(
 );
 #endif /* CONFIG_SHSYS_CUST_DEBUG */
 
-#ifdef CONFIG_SH_SLEEP_LOG
-#include <sharp/sh_sleeplog.h>
-#endif
-
 static suspend_state_t autosleep_state;
 static struct workqueue_struct *autosleep_wq;
 /*
@@ -112,7 +108,7 @@ void pm_autosleep_unlock(void)
 
 int pm_autosleep_set_state(suspend_state_t state)
 {
-#if defined(CONFIG_SH_SLEEP_LOG) || defined(CONFIG_SHSYS_CUST_DEBUG)
+#if defined(CONFIG_SHSYS_CUST_DEBUG)
 	struct timespec ts;
 #endif
 #ifndef CONFIG_HIBERNATION
@@ -124,11 +120,8 @@ int pm_autosleep_set_state(suspend_state_t state)
 
 	mutex_lock(&autosleep_lock);
 
-#if defined(CONFIG_SH_SLEEP_LOG) || defined(CONFIG_SHSYS_CUST_DEBUG)
+#if defined(CONFIG_SHSYS_CUST_DEBUG)
 	getnstimeofday(&ts);
-#endif
-#ifdef CONFIG_SH_SLEEP_LOG
-	sh_set_screen_state(ts, state);
 #endif
 #ifdef CONFIG_SHSYS_CUST_DEBUG
 	if (sh_debug_mask & SH_DEBUG_SUSPEND) {

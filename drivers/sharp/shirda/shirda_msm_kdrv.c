@@ -1,6 +1,6 @@
 /* drivers/sharp/shirda/shirda_msm_kdrv.c (sharp IrDA driver)
  *
- * Copyright (C) 2011 - 2014 SHARP CORPORATION All rights reserved.
+ * Copyright (C) 2011 - 2015 SHARP CORPORATION All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -12,7 +12,6 @@
  * GNU General Public License for more details.
  *
  */
-
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -49,13 +48,19 @@
 
 
 
-#define	SHIRDA_KERNEL_DRIVER_VERSION	"1.37.00"
+
+
+
+#define	SHIRDA_KERNEL_DRIVER_VERSION	"1.55.00"
 #define	SHIRDA_KERNEL_DRIVER_NAME	SHIRDA_DEVFILE_NAME
 #define	SHIRDA_KERNEL_DRIVER_NAME2	SHIRDA_DEVFILE_NAME2
 #define	SHIRDA_KERNEL_DRIVER_NAME3	SHIRDA_DEVFILE_NAME3
 
 #define SHIRDA_CORE_CLK_FREQ	(7372800)
 
+#define	SHIRDA_GPIO_HIGH	(1)
+#define	SHIRDA_GPIO_LOW		(0)
+#define	SHIRDA_GPIO_IDLE	(0)
 #define	SHIRDA_SD_SHUTDOWN	(1)
 #define	SHIRDA_SD_ACTIVE	(0)
 
@@ -94,9 +99,50 @@ static int shirda_cpufreq_callback(struct notifier_block *nb,
 					unsigned long event, void *data);
 
 
+typedef enum {
+	SHIRDA_GSBI_NORMAL,
+	SHIRDA_GSBI_INVERT,
+	SHIRDA_GSBI_IRDA,
+	SHIRDA_GSBI_IRDA_MIR,
+} shirda_gsbi_mode;
+
+typedef enum {
+	SHIRDA_LED_SIR_FUNC,
+	SHIRDA_LED_FIR_FUNC,
+	SHIRDA_LED_RC_START_FUNC,
+	SHIRDA_LED_RC_END_FUNC,
+} shirda_led_function;
+
+typedef enum {
+	SHIRDA_STATE_INIT,
+	SHIRDA_STATE_IDLE,
+	SHIRDA_STATE_READY,
+	SHIRDA_STATE_OPEN,
+	SHIRDA_STATE_OPEN2,
+	SHIRDA_STATE_OPEN3,
+	SHIRDA_STATE_ERROR
+} shirda_main_state;
+
+static shirda_main_state shirda_state = SHIRDA_STATE_INIT;
+
+typedef enum {
+	SHIRDA_GPIO_MODE_IDLE,
+	SHIRDA_GPIO_MODE_ACTIVE,
+	SHIRDA_GPIO_MODE_ACTIVE2,
+	SHIRDA_GPIO_MODE_MAX
+} shirda_gpio_mode;
+
+static void shirda_gpio_free(void);
+static int shirda_gpios_enable(shirda_gpio_mode mode);
+
+
+
+static int shirda_gpio_init(void);
+#include	"shirda_msm_gpio.c"
+
 struct platform_device *shirda_device = NULL;
 static struct platform_driver shirda_driver = {
-	.remove = __devexit_p(shirda_driver_remove),
+	.remove = shirda_driver_remove,
 	.driver = {
 		.name  = SHIRDA_KERNEL_DRIVER_NAME,
 		.owner = THIS_MODULE,
@@ -141,72 +187,10 @@ static struct miscdevice shirda3_misc = {
 
 
 
-
-
-static struct msm_gpio shirda_gpio_idle[] = {
-	{ GPIO_CFG(SHIRDA_GPIO_TXD, 0,                   GPIO_CFG_OUTPUT,
-		SHIRDA_TXD_PULL, SHIRDA_TXD_STRENGTH), "IRDA_TX"},
-	{ GPIO_CFG(SHIRDA_GPIO_RXD, SHIRDA_GPIO_RX_FUNC, GPIO_CFG_INPUT,
-		SHIRDA_RXD_PULL, SHIRDA_RXD_STRENGTH), "IRDA_RX"},
-	{ GPIO_CFG(SHIRDA_GPIO_SD,  SHIRDA_GPIO_SD_FUNC, GPIO_CFG_OUTPUT,
-		SHIRDA_SD_PULL,  SHIRDA_SD_STRENGTH),  "IRDA_SD"},
-};
-
-static struct msm_gpio shirda_gpio_active2[] = {
-	{ GPIO_CFG(SHIRDA_GPIO_TXD, SHIRDA_GPIO_TX_FUNC, GPIO_CFG_OUTPUT,
-		SHIRDA_TXD_PULL, SHIRDA_TXD_STRENGTH), "IRDA_TX"},
-	{ GPIO_CFG(SHIRDA_GPIO_RXD, 0,                   GPIO_CFG_INPUT,
-		SHIRDA_RXD_PULL, SHIRDA_RXD_STRENGTH), "IRDA_RX"},
-	{ GPIO_CFG(SHIRDA_GPIO_SD,  SHIRDA_GPIO_SD_FUNC, GPIO_CFG_OUTPUT,
-		SHIRDA_SD_PULL,  SHIRDA_SD_STRENGTH),  "IRDA_SD"},
-};
-
-
-static struct msm_gpio shirda_gpio_active[] = {
-	{ GPIO_CFG(SHIRDA_GPIO_TXD, SHIRDA_GPIO_TX_FUNC, GPIO_CFG_OUTPUT,
-		SHIRDA_TXD_PULL, SHIRDA_TXD_STRENGTH), "IRDA_TX"},
-	{ GPIO_CFG(SHIRDA_GPIO_RXD, SHIRDA_GPIO_RX_FUNC, GPIO_CFG_INPUT,
-		SHIRDA_RXD_PULL, SHIRDA_RXD_STRENGTH), "IRDA_RX"},
-	{ GPIO_CFG(SHIRDA_GPIO_SD,  SHIRDA_GPIO_SD_FUNC, GPIO_CFG_OUTPUT,
-		SHIRDA_SD_PULL,  SHIRDA_SD_STRENGTH),  "IRDA_SD"},
-};
-
-static int shirda_gpio_idle_init[] = {
-	0,
-	0,
-	SHIRDA_SD_SHUTDOWN,
-};
-
 static spinlock_t shirda_lock;
 #define	SHIRDA_WLOCK_SUSPEND_NAME "shirda_suspend_lock"
 static struct wake_lock shirda_wlock_suspend;
 
-
-typedef enum {
-	SHIRDA_GSBI_NORMAL,
-	SHIRDA_GSBI_INVERT,
-	SHIRDA_GSBI_IRDA,
-	SHIRDA_GSBI_IRDA_MIR,
-} shirda_gsbi_mode;
-
-typedef enum {
-	SHIRDA_LED_SIR_FUNC,
-	SHIRDA_LED_FIR_FUNC,
-	SHIRDA_LED_RC_START_FUNC,
-	SHIRDA_LED_RC_END_FUNC,
-} shirda_led_function;
-
-typedef enum {
-	SHIRDA_STATE_INIT,
-	SHIRDA_STATE_IDLE,
-	SHIRDA_STATE_READY,
-	SHIRDA_STATE_OPEN,
-	SHIRDA_STATE_OPEN2,
-	SHIRDA_STATE_OPEN3,
-	SHIRDA_STATE_ERROR
-} shirda_main_state;
-
-static shirda_main_state shirda_state = SHIRDA_STATE_INIT;
 
 
 unsigned int shirda_perflock_freq = 0;
@@ -227,186 +211,12 @@ static int shirda_cpufreq_callback(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static struct notifier_block ir_cpufreq_notifier = {
+static struct notifier_block shirda_cpufreq_notifier = {
 	.notifier_call = shirda_cpufreq_callback,
 };
 
 
 
-
-
-static int shirda_msm_gpios_enable(const struct msm_gpio *table, int size);
-static int shirda_msm_gpios_request(const struct msm_gpio *table, int size);
-static void shirda_msm_gpios_disable_free(const struct msm_gpio *table,
-								int size);
-static int shirda_msm_gpios_disable(const struct msm_gpio *table, int size);
-static void shirda_msm_gpios_free(const struct msm_gpio *table, int size);
-/*linux/arch/arm/mach-msm/gpio.c
- *
- * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
- *
- * This software is licensed under the terms of the GNU General Public
- * License version 2, as published by the Free Software Foundation, and
- * may be copied, distributed, and modified under those terms.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- */
-
-static int shirda_msm_gpios_enable(const struct msm_gpio *table, int size)
-{
-	int rc;
-	int i;
-	const struct msm_gpio *g;
-	for (i = 0; i < size; i++) {
-		g = table + i;
-		rc = gpio_tlmm_config(g->gpio_cfg, GPIO_CFG_ENABLE);
-		if (rc) {
-			IRDALOG_ERROR("gpio_tlmm_config(%d) <%s> failed: %d\n",
-			       GPIO_PIN(g->gpio_cfg), g->label ?: "?", rc);
-			shirda_msm_gpios_disable(table, i);
-			return rc;
-		}
-	}
-	return 0;
-}
-
-static int shirda_msm_gpios_request(const struct msm_gpio *table, int size)
-{
-	int rc;
-	int i;
-	const struct msm_gpio *g;
-	for (i = 0; i < size; i++) {
-		g = table + i;
-		if ((GPIO_FUNC(g->gpio_cfg)) == 0) {
-			rc = gpio_request(GPIO_PIN(g->gpio_cfg), g->label);
-			if (rc) {
-				IRDALOG_ERROR(
-					"gpio_request(%d) <%s> failed: %d\n",
-					GPIO_PIN(g->gpio_cfg),
-					g->label ?: "?", rc);
-				shirda_msm_gpios_free(table, i);
-				return rc;
-			}
-		}
-	}
-	return 0;
-}
-
-static void shirda_msm_gpios_disable_free(const struct msm_gpio *table,
-								int size)
-{
-	shirda_msm_gpios_disable(table, size);
-	shirda_msm_gpios_free(table, size);
-}
-
-static int shirda_msm_gpios_disable(const struct msm_gpio *table, int size)
-{
-	int rc = 0;
-	int i;
-	const struct msm_gpio *g;
-	for (i = size-1; i >= 0; i--) {
-		int tmp;
-		g = table + i;
-		tmp = gpio_tlmm_config(g->gpio_cfg, GPIO_CFG_DISABLE);
-		if (tmp) {
-			IRDALOG_ERROR(
-				"gpio_tlmm_config(0x%08x, GPIO_CFG_DISABLE)"
-				" <%s> failed: %d\n",
-				g->gpio_cfg, g->label ?: "?", rc);
-			if (!rc)
-				rc = tmp;
-		}
-	}
-	return rc;
-}
-
-static void shirda_msm_gpios_free(const struct msm_gpio *table, int size)
-{
-	int i;
-	const struct msm_gpio *g;
-	for (i = size-1; i >= 0; i--) {
-		g = table + i;
-		gpio_free(GPIO_PIN(g->gpio_cfg));
-	}
-}
-
-static int shirda_gpios_direction(const struct msm_gpio *table,
-						const int *pol, int size);
-
-static int shirda_gpios_direction(const struct msm_gpio *table,
-						const int *pol, int size)
-{
-	int rc = 0;
-	int i;
-	const struct msm_gpio *g;
-	const int *p;
-
-	for (i = 0; i < size; i++) {
-		g = table + i;
-		p = pol + i;
-		if ((GPIO_FUNC(g->gpio_cfg)) == 0) {
-
-			if (GPIO_DIR(g->gpio_cfg) == GPIO_CFG_INPUT) {
-				rc = gpio_direction_input(
-						GPIO_PIN(g->gpio_cfg));
-			} else {
-				rc = gpio_direction_output(
-						GPIO_PIN(g->gpio_cfg), *p);
-			}
-			if (rc != 0) {
-				IRDALOG_ERROR(
-					"Set gpio dir error(0x%08x): %s\n",
-						rc, g->label ?: "?");
-			}
-		}
-	}
-	return rc;
-}
-
-static int shirda_gpio_init(void)
-{
-	int ret = 0;
-
-
-	ret = shirda_msm_gpios_request(shirda_gpio_idle,
-					ARRAY_SIZE(shirda_gpio_idle));
-	if (ret != 0) {
-		IRDALOG_FATAL("gpios_request() fail errno = %d\n", ret);
-		return ret;
-	}
-
-	ret = shirda_gpios_direction(shirda_gpio_idle, shirda_gpio_idle_init,
-					ARRAY_SIZE(shirda_gpio_idle));
-	if (ret != 0) {
-		IRDALOG_FATAL("gpios direction set fail errno = %d\n", ret );
-		shirda_msm_gpios_free(shirda_gpio_active,
-					ARRAY_SIZE(shirda_gpio_active));
-		return ret;
-	}
-
-	ret = shirda_msm_gpios_enable(shirda_gpio_idle,
-					ARRAY_SIZE(shirda_gpio_idle));
-	if (ret != 0) {
-		IRDALOG_FATAL("gpios_enable() fail errno = %d\n", ret);
-		shirda_msm_gpios_free(shirda_gpio_active,
-					ARRAY_SIZE(shirda_gpio_active));
-		return ret;
-	}
-
-
-	return 0;
-}
-
-static void shirda_gpio_free(void)
-{
-	shirda_msm_gpios_disable_free(shirda_gpio_idle,
-						ARRAY_SIZE(shirda_gpio_idle));
-}
 
 static void shirda_led_set_sir(void)
 {
@@ -474,8 +284,7 @@ static int shirda_gpio_set_irda_enable(shirda_led_function func)
 	case SHIRDA_LED_SIR_FUNC:
 		shirda_led_set_sir();
 
-		ret = shirda_msm_gpios_enable(shirda_gpio_active,
-					ARRAY_SIZE(shirda_gpio_active));
+		ret = shirda_gpios_enable(SHIRDA_GPIO_MODE_ACTIVE);
 		if (ret != 0) {
 			IRDALOG_FATAL("gpios_enable() fail errno = %d\n", ret);
 		}
@@ -483,8 +292,7 @@ static int shirda_gpio_set_irda_enable(shirda_led_function func)
 	case SHIRDA_LED_RC_START_FUNC:
 		shirda_led_set_rc();
 
-		ret = shirda_msm_gpios_enable(shirda_gpio_active2,
-					ARRAY_SIZE(shirda_gpio_active2));
+		ret = shirda_gpios_enable(SHIRDA_GPIO_MODE_ACTIVE2);
 		if (ret != 0) {
 			IRDALOG_FATAL("gpios_enable() fail errno = %d\n", ret);
 		}
@@ -508,8 +316,7 @@ static int shirda_gpio_set_irda_disable(shirda_led_function func)
 	int ret = 0;
 
 
-	ret = shirda_msm_gpios_enable(shirda_gpio_idle,
-				ARRAY_SIZE(shirda_gpio_idle));
+	ret = shirda_gpios_enable(SHIRDA_GPIO_MODE_IDLE);
 	if (ret != 0) {
 		IRDALOG_FATAL("gpios_enable() fail errno = %d\n", ret);
 	}
@@ -532,35 +339,61 @@ static int shirda_gpio_set_irda_disable(shirda_led_function func)
 	return ret;
 }
 
+struct shirda_clk_table {
+	struct clk	*clk;
+	struct clk	*pclk;
+};
+static struct shirda_clk_table	shirda_clk = {
+	.clk	= NULL,
+	.pclk	= NULL,
+};
+
+
+
+
+
 
 static int shirda_clk_enable(void)
 {
-	struct clk *core_clk;
-	struct clk *iface_clk;
+	int	ret;
 
 
-	core_clk  = clk_get_sys(SHIRDA_UART_CLK_NAME, "core_clk");
-	if (unlikely(IS_ERR(core_clk))) {
-		IRDALOG_FATAL("The core_clk(%s) address get error.\n",
-							SHIRDA_UART_CLK_NAME);
+	shirda_clk.clk = clk_get_sys(SHIRDA_UART_CLK_NAME, "core_clk");
+	if (unlikely(IS_ERR(shirda_clk.clk))) {
+		IRDALOG_FATAL("The core_clk address error\n");
 		return -EIO;
+	} else {
+		ret = clk_set_rate(shirda_clk.clk, SHIRDA_CORE_CLK_FREQ);
+		if (ret != 0) {
+			IRDALOG_FATAL("core_clk set rate error %d\n", ret);
+			goto	clk_error;
+		}
+		ret = clk_prepare_enable(shirda_clk.clk);
+		if (ret != 0) {
+			IRDALOG_FATAL("core_clk enable error %d\n", ret);
+			goto	clk_error;
+		}
 	}
 
-	clk_set_rate(core_clk, SHIRDA_CORE_CLK_FREQ);
-	clk_prepare_enable(core_clk);
-
-	iface_clk  = clk_get_sys(SHIRDA_UART_CLK_NAME, "iface_clk");
-	if (unlikely(IS_ERR(iface_clk))) {
-		IRDALOG_FATAL("The iface_clk(%s) address get error.\n",
-							SHIRDA_UART_CLK_NAME);
-		clk_disable_unprepare(core_clk);
-		clk_put(core_clk);
-		return -EIO;
+	shirda_clk.pclk = clk_get_sys(SHIRDA_UART_CLK_NAME, "iface_clk");
+	if (!(IS_ERR(shirda_clk.pclk))) {
+		ret = clk_prepare_enable(shirda_clk.pclk);
+		if (ret != 0) {
+			IRDALOG_FATAL("iface_clk enable error %d\n", ret);
+			goto	clk_error_disable;
+		}
+	} else {
+		IRDALOG_FATAL("The iface_clk address error\n");
+		goto	clk_error_disable;
 	}
-
-	clk_prepare_enable(iface_clk);
 
 	return 0;
+
+clk_error_disable:
+	clk_disable_unprepare(shirda_clk.clk);
+clk_error:
+	clk_put(shirda_clk.clk);
+	return -EIO;
 }
 
 
@@ -573,26 +406,23 @@ static int shirda_clk_enable(void)
 
 static void shirda_clk_disable(void)
 {
-	struct clk *core_clk;
-	struct clk *iface_clk;
 
-
-	core_clk  = clk_get_sys(SHIRDA_UART_CLK_NAME, "core_clk");
-	if (unlikely(IS_ERR(core_clk))) {
-		IRDALOG_FATAL("The core_clk(%s) address get error.\n",
-							SHIRDA_UART_CLK_NAME);
+	shirda_clk.clk = clk_get_sys(SHIRDA_UART_CLK_NAME, "core_clk");
+	if (!(IS_ERR(shirda_clk.clk))) {
+		clk_disable_unprepare(shirda_clk.clk);
+		clk_put(shirda_clk.clk);
 	} else {
-		clk_disable_unprepare(core_clk);
-		clk_put(core_clk);
+		IRDALOG_FATAL("The core_clk(%s) address get error\n",
+							SHIRDA_UART_CLK_NAME);
 	}
 
-	iface_clk  = clk_get_sys(SHIRDA_UART_CLK_NAME, "iface_clk");
-	if (unlikely(IS_ERR(iface_clk))) {
-		IRDALOG_FATAL("The iface_clk(%s) address get error.\n",
-							SHIRDA_UART_CLK_NAME);
+	shirda_clk.pclk = clk_get_sys(SHIRDA_UART_CLK_NAME, "iface_clk");
+	if (!(IS_ERR(shirda_clk.pclk))) {
+		clk_disable_unprepare(shirda_clk.pclk);
+		clk_put(shirda_clk.pclk);
 	} else {
-		clk_disable_unprepare(iface_clk);
-		clk_put(iface_clk);
+		IRDALOG_FATAL("The iface_clk(%s) address get error\n",
+							SHIRDA_UART_CLK_NAME);
 	}
 
 	return;
@@ -932,13 +762,25 @@ static int shirda3_release(struct inode *inode, struct file *fp)
 
 
 
-static char* ttydevname =  TTYHS_DEVFILE;
-module_param( ttydevname, charp, S_IRUGO );
-MODULE_PARM_DESC( ttydevname, "tty device file name");
+static char* node =  SHIRDA_BLSP_NODE;
+module_param( node, charp, S_IRUGO );
+MODULE_PARM_DESC( node, "BLSP node name of tty device");
 
-static int __devinit shirda_driver_init(struct platform_device *pdev)
+static char* ver = SHIRDA_KERNEL_DRIVER_MASTER_VERSION;
+module_param( ver, charp, S_IRUGO );
+MODULE_PARM_DESC( ver, "sharp irda kernel driver version");
+
+static int shirda_driver_init(struct platform_device *pdev)
 {
 	int ret = 0;
+
+
+	if (shirda_state != SHIRDA_STATE_INIT &&
+		shirda_state != SHIRDA_STATE_ERROR) {
+		IRDALOG_ERROR("already initialized  Now state: %d\n",
+								shirda_state);
+		return ret;
+	}
 
 
 	ret = shirda_gpio_init();
@@ -1016,7 +858,7 @@ static int __init shirda_module_init(void)
 	}
 
 	shirda_perflock_freq = 0;
-	if (cpufreq_register_notifier(&ir_cpufreq_notifier,
+	if (cpufreq_register_notifier(&shirda_cpufreq_notifier,
 			CPUFREQ_POLICY_NOTIFIER)) {
 		IRDALOG_FATAL("cannot register cpufreq notifier\n");
 	}
@@ -1026,7 +868,7 @@ static int __init shirda_module_init(void)
 
 static void __exit shirda_module_exit(void)
 {
-	if (cpufreq_unregister_notifier(&ir_cpufreq_notifier,
+	if (cpufreq_unregister_notifier(&shirda_cpufreq_notifier,
 			CPUFREQ_POLICY_NOTIFIER)) {
 		IRDALOG_FATAL("cannot unregister cpufreq notifier\n");
 	}

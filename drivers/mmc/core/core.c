@@ -60,6 +60,12 @@ module_param_named(sh_clk_debug_mask, sh_mmc_clk_debug_mask, int, S_IRUGO | S_IW
 MODULE_PARM_DESC(sh_debug_clk_mask, "MMC/SD cards tests param3");
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 
+#ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
+int sh_mmc_status_flags = 0;
+module_param_named(sh_status_flags, sh_mmc_status_flags, int, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC(sh_debug_mask, "eMMC tuning status param");
+#endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
+
 #ifdef CONFIG_MMC_SD_PENDING_RESUME_CUST_SH
 extern bool sh_mmc_pending_resume;
 extern bool sh_mmc_pending_powoff;
@@ -277,21 +283,20 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 		if (sh_mmc_debug_mask && card &&
 			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
-			((sh_mmc_debug_mask&0xF0)==0x10) ) {
+			((sh_mmc_debug_mask&0xF0)==0x10))
 			pr_info(" req done %u: %d: %08x %08x %08x %08x\n",
 				cmd->opcode, err,
 				cmd->resp[0], cmd->resp[1],
 				cmd->resp[2], cmd->resp[3]);
-		}
 
 		if (sh_mmc_time_debug_mask && card &&
-			((card)->type == (sh_mmc_time_debug_mask-1)) ){
-			if( mrq->data )
+			((card)->type == (sh_mmc_time_debug_mask-1))) {
+			if (mrq->data)
 				pr_info("(done)%u,%d,%d,%ld\n",
 					mrq->cmd->opcode,
 					((mrq->cmd->arg)/((mmc_card_blockaddr(card)) ?
 						1 : mrq->data->blksz)),
-					mrq->data->blocks, proc_time );
+					mrq->data->blocks, proc_time);
 			else
 				pr_info("(done)%u,%d,%d,%ld\n",
 					cmd->opcode, cmd->arg, cmd->flags, proc_time );
@@ -323,10 +328,9 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 			if (sh_mmc_debug_mask && card &&
 				((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
-				((sh_mmc_debug_mask&0xF0)==0x10) ) {
+				((sh_mmc_debug_mask&0xF0)==0x10))
 				pr_info("     %d bytes transferred: %d\n",
 					mrq->data->bytes_xfered, mrq->data->error);
-			}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 		}
 
@@ -339,13 +343,12 @@ void mmc_request_done(struct mmc_host *host, struct mmc_request *mrq)
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 			if (sh_mmc_debug_mask && card &&
 				((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
-				((sh_mmc_debug_mask&0xF0)==0x10) ) {
+				((sh_mmc_debug_mask&0xF0)==0x10))
 				pr_info(" stop %u: %d: %08x %08x %08x %08x\n",
 					mrq->stop->opcode,
 					mrq->stop->error,
 					mrq->stop->resp[0], mrq->stop->resp[1],
 					mrq->stop->resp[2], mrq->stop->resp[3]);
-			}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 		}
 
@@ -376,11 +379,10 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 		if (sh_mmc_debug_mask && card &&
 			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
-        		((sh_mmc_debug_mask&0xF0)==0x10) ) {
+        		((sh_mmc_debug_mask&0xF0)==0x10))
 			pr_info("<%s: starting CMD%u arg %08x flags %08x>\n",
 				 mmc_hostname(host), mrq->sbc->opcode,
 				 mrq->sbc->arg, mrq->sbc->flags);
-		}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 	}
 
@@ -390,11 +392,10 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 	if (sh_mmc_debug_mask && card &&
 		((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
-		((sh_mmc_debug_mask&0xF0)==0x10) ) {
+		((sh_mmc_debug_mask&0xF0)==0x10))
 		pr_info(" starting CMD%u arg %08x flags %08x\n",
 			mrq->cmd->opcode,
 			mrq->cmd->arg, mrq->cmd->flags);
-	}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 
 	if (mrq->data) {
@@ -406,22 +407,20 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 			mrq->data->timeout_clks);
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 		if (sh_mmc_debug_mask && card &&
-			((card)->type == ((sh_mmc_debug_mask & 0xF)-1)) ) {
+			((card)->type == ((sh_mmc_debug_mask & 0xF)-1)))
 			pr_info("%u,%d,%d\n",
 				mrq->cmd->opcode,
 				((mrq->cmd->arg)/((mmc_card_blockaddr(card)) ?
 					1 : mrq->data->blksz)),
 				mrq->data->blocks );
-		}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 	}
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
-	else{
+	else {
 		if (sh_mmc_debug_mask && card &&
-			((card)->type == ((sh_mmc_debug_mask & 0xF)-1)) ) {
+			((card)->type == ((sh_mmc_debug_mask & 0xF)-1)))
 			pr_info("%u,%d,%d\n",
-				mrq->cmd->opcode, mrq->cmd->arg, mrq->cmd->flags );
-		}
+				mrq->cmd->opcode, mrq->cmd->arg, mrq->cmd->flags);
 	}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 
@@ -432,11 +431,10 @@ mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 		if (sh_mmc_debug_mask && card &&
 			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
-			((sh_mmc_debug_mask&0xF0)==0x10) ) {
+			((sh_mmc_debug_mask&0xF0)==0x10))
 			pr_info("    stop %u arg %08x flags %08x\n",
 				 mrq->stop->opcode,
 				 mrq->stop->arg, mrq->stop->flags);
-		}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 	}
 
@@ -541,9 +539,6 @@ void mmc_start_delayed_bkops(struct mmc_card *card)
 	queue_delayed_work(system_nrt_wq, &card->bkops_info.dw,
 			   msecs_to_jiffies(
 				   card->bkops_info.delay_ms));
-#ifdef CONFIG_BKOPS_START_CRITERIA_EMMC_CUST_SH
-	card->bkops_info.sectors_changed = 0;
-#endif /* CONFIG_BKOPS_START_CRITERIA_EMMC_CUST_SH */
 }
 EXPORT_SYMBOL(mmc_start_delayed_bkops);
 
@@ -741,8 +736,10 @@ static bool mmc_should_stop_curr_req(struct mmc_host *host)
 	    (host->areq->cmd_flags & REQ_FUA))
 		return false;
 
+	mmc_host_clk_hold(host);
 	remainder = (host->ops->get_xfer_remain) ?
 		host->ops->get_xfer_remain(host) : -1;
+	mmc_host_clk_release(host);
 	return (remainder > 0);
 }
 
@@ -767,6 +764,7 @@ static int mmc_stop_request(struct mmc_host *host)
 				mmc_hostname(host));
 		return -ENOTSUPP;
 	}
+	mmc_host_clk_hold(host);
 	err = host->ops->stop_request(host);
 	if (err) {
 		pr_err("%s: Call to host->ops->stop_request() failed (%d)\n",
@@ -801,6 +799,7 @@ static int mmc_stop_request(struct mmc_host *host)
 		goto out;
 	}
 out:
+	mmc_host_clk_release(host);
 	return err;
 }
 
@@ -823,11 +822,11 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 	struct mmc_context_info *context_info = &host->context_info;
 	bool pending_is_urgent = false;
 	bool is_urgent = false;
-	int err;
+	int err, ret;
 	unsigned long flags;
 
 	while (1) {
-		wait_io_event_interruptible(context_info->wait,
+		ret = wait_io_event_interruptible(context_info->wait,
 				(context_info->is_done_rcv ||
 				 context_info->is_new_req  ||
 				 context_info->is_urgent));
@@ -887,7 +886,7 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 				err = MMC_BLK_NEW_REQUEST;
 				break; /* return err */
 			}
-		} else {
+		} else if (context_info->is_urgent) {
 			/*
 			 * The case when block layer sent next urgent
 			 * notification before it receives end_io on
@@ -907,25 +906,25 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 				struct mmc_card *card = host->card;
 
-				if  (sh_mmc_time_debug_mask && card &&
-					((card)->type == ((sh_mmc_time_debug_mask&0xF)-1))){
+				if (sh_mmc_time_debug_mask && card &&
+					((card)->type == ((sh_mmc_time_debug_mask&0xF)-1))) {
 					long   proc_time = 0;
 					if (host->clk_scaling.enable)
 						proc_time = (long)ktime_to_us(
 							ktime_sub(ktime_get(),
 							host->clk_scaling.start_busy));
-					if( mrq->data )
+					if (mrq->data)
 						pr_info("(stopped)%u,%d,%d,%ld\n",
-							cmd->opcode,
-							((cmd->arg)/((mmc_card_blockaddr(card)) ?
+							mrq->cmd->opcode,
+							((mrq->cmd->arg)/((mmc_card_blockaddr(card)) ?
 							1 : mrq->data->blksz)),
-							mrq->data->blocks, proc_time );
+							mrq->data->blocks, proc_time);
 					else
 						pr_info("(stopped)%u,%d,%d,%ld\n",
-							cmd->opcode,
-							cmd->arg,
-							cmd->flags,
-							proc_time );
+							mrq->cmd->opcode,
+							mrq->cmd->arg,
+							mrq->cmd->flags,
+							proc_time);
 				}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 				mmc_update_clk_scaling(host);
@@ -963,6 +962,11 @@ static int mmc_wait_for_data_req_done(struct mmc_host *host,
 				pending_is_urgent = true;
 				continue; /* wait for done/new/urgent event */
 			}
+		} else {
+			pr_warn("%s: mmc thread unblocked from waiting by signal, ret=%d\n",
+					mmc_hostname(host),
+					ret);
+			continue;
 		}
 	} /* while */
 	return err;
@@ -1005,10 +1009,9 @@ static void mmc_wait_for_req_done(struct mmc_host *host,
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
 		if (sh_mmc_debug_mask && card &&
 			((card)->type == ((sh_mmc_debug_mask&0xF)-1)) &&
-			((sh_mmc_debug_mask&0xF0)==0x10) ) {
+			((sh_mmc_debug_mask&0xF0)==0x10))
 			pr_info(" req failed %u: %d, retrying...%d\n",
 				cmd->opcode, cmd->error, cmd->retries);
-		}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 		cmd->retries--;
 		cmd->error = 0;
@@ -1460,14 +1463,14 @@ void mmc_set_data_timeout(struct mmc_data *data, const struct mmc_card *card)
 	 * the r2w factor for writes.
 	 */
 #ifdef CONFIG_TIMEOUTCTRL_EMMC_CUST_SH
-	if (mmc_card_mmc(card) && (card->csd.tacc_ns != 0)) {
+	if (mmc_card_mmc(card) && (card->csd.tacc_ns != 0))
 		mult = (unsigned int)(0x59682F00/card->csd.tacc_ns);
-	} else {
-#endif /* CONFIG_TIMEOUTCTRL_EMMC_CUST_SH */
+	else
+		if (data->flags & MMC_DATA_WRITE)
+			mult <<= card->csd.r2w_factor;
+#else /* CONFIG_TIMEOUTCTRL_EMMC_CUST_SH */
 	if (data->flags & MMC_DATA_WRITE)
 		mult <<= card->csd.r2w_factor;
-#ifdef CONFIG_TIMEOUTCTRL_EMMC_CUST_SH
-	}
 #endif /* CONFIG_TIMEOUTCTRL_EMMC_CUST_SH */
 
 	data->timeout_ns = card->csd.tacc_ns * mult;
@@ -1687,13 +1690,12 @@ void mmc_set_ios(struct mmc_host *host)
 		 ios->bus_width, ios->timing);
 
 #if defined(CONFIG_MMC_CUST_SH) && defined(CONFIG_ANDROID_ENGINEERING)
-	if (sh_mmc_clk_debug_mask ) {
+	if (sh_mmc_clk_debug_mask)
 		pr_info("%s: clock %uHz busmode %u powermode %u cs %u Vdd %u "
 			"width %u timing %u\n",
 			 mmc_hostname(host), ios->clock, ios->bus_mode,
 			ios->power_mode, ios->chip_select, ios->vdd,
 			ios->bus_width, ios->timing);
-	}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 
 	if (ios->clock > 0)
@@ -1764,14 +1766,14 @@ void mmc_gate_clock(struct mmc_host *host)
 		if (host->ios.clock)
 			host->clk_old = host->ios.clock;
 		else
-			pr_warn( "%s : %s : illegal clock status\n",
-				mmc_hostname(host), __func__ );
+			pr_warn("%s : %s : illegal clock status\n",
+				mmc_hostname(host), __func__);
 	} else {
 		host->clk_old = host->ios.clock;
 	}
-#else	/* CONFIG_PM_EMMC_CUST_SH */
+#else /* CONFIG_PM_EMMC_CUST_SH */
 	host->clk_old = host->ios.clock;
-#endif	/* CONFIG_PM_EMMC_CUST_SH */
+#endif /* CONFIG_PM_EMMC_CUST_SH */
 	host->ios.clock = 0;
 	host->clk_gated = true;
 	spin_unlock_irqrestore(&host->clk_lock, flags);
@@ -3474,7 +3476,8 @@ void mmc_rescan(struct work_struct *work)
 	mmc_release_host(host);
 	mmc_rpm_release(host, &host->class_dev);
  out:
-	if (extend_wakelock)
+	/* only extend the wakelock, if suspend has not started yet */
+	if (extend_wakelock && !host->rescan_disable)
 		wake_lock_timeout(&host->detect_wake_lock, HZ / 2);
 
 	if (host->caps & MMC_CAP_NEEDS_POLL)
@@ -3718,6 +3721,9 @@ static bool mmc_runtime_suspend_clock_off = false;
 int mmc_suspend_host(struct mmc_host *host)
 {
 	int err = 0;
+#ifdef CONFIG_PM_EMMC_CUST_SH
+	int vreg_err = 0;
+#endif /* CONFIG_PM_EMMC_CUST_SH */
 
 	if (mmc_bus_needs_resume(host))
 		return 0;
@@ -3753,6 +3759,8 @@ int mmc_suspend_host(struct mmc_host *host)
 						card->bkops_info.bkops_stats);
 #ifdef CONFIG_PM_EMMC_CUST_SH
 				} else {
+					if (host->card->ext_csd.cache_ctrl & 1)
+						mmc_send_short_pon(host->card);
 					if (host->ios.clock) {
 						/* CLKGATE is not available */
 						/* cancel any clock gating work scheduled */
@@ -3761,12 +3769,11 @@ int mmc_suspend_host(struct mmc_host *host)
 						mmc_gate_clock(host);
 						mmc_runtime_suspend_clock_off = true;
 					}
-					err = sh_sdhci_msm_setup_vreg(
-							mmc_priv(host), false, false );
-					if (err) {
+					vreg_err = sh_sdhci_msm_setup_vreg(
+							mmc_priv(host), false, false);
+					if (vreg_err)
 						pr_err("%s: %s disable regulator: error=%d\n",
-								mmc_hostname(host), __func__, err);
-					}
+								mmc_hostname(host), __func__, vreg_err);
 				}
 #endif /* CONFIG_PM_EMMC_CUST_SH */
 			}
@@ -3813,9 +3820,9 @@ int mmc_suspend_host(struct mmc_host *host)
 stop_bkops_err:
 	if (!(host->card && mmc_card_sdio(host->card)))
 		mmc_release_host(host);
-#ifdef CONFIG_MMC_CUST_SH
+#ifdef CONFIG_MMC_BUG_FIX_CUST_SH
 	mmc_bus_put(host);
-#endif /* CONFIG_MMC_CUST_SH */
+#endif /* CONFIG_MMC_BUG_FIX_CUST_SH */
 	return err;
 }
 
@@ -3868,15 +3875,16 @@ int mmc_resume_host(struct mmc_host *host)
 		} else {
 			mmc_claim_host(host);
 			err = sh_sdhci_msm_setup_vreg(mmc_priv(host), true, false);
-			if (err) {
+			if (err)
 				pr_err("%s: %s enable regulator: error=%d\n",
 						mmc_hostname(host), __func__, err);
-			}
 			mmc_delay(10);
 			if (mmc_runtime_suspend_clock_off) {
 				mmc_ungate_clock(host);
 				mmc_runtime_suspend_clock_off = false;
 			}
+			if (host->card->ext_csd.cache_ctrl & 1)
+				mmc_send_on_pon(host->card);
 			mmc_release_host(host);
 		}
 #endif /* CONFIG_PM_EMMC_CUST_SH */
@@ -3925,15 +3933,14 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 			spin_unlock_irqrestore(&host->lock, flags);
 			break;
 		}
+
+		/* since its suspending anyway, disable rescan */
+		host->rescan_disable = 1;
 		spin_unlock_irqrestore(&host->lock, flags);
 
 		/* Wait for pending detect work to be completed */
 		if (!(host->caps & MMC_CAP_NEEDS_POLL))
 			flush_work(&host->detect.work);
-
-		spin_lock_irqsave(&host->lock, flags);
-		host->rescan_disable = 1;
-		spin_unlock_irqrestore(&host->lock, flags);
 
 		/*
 		 * In some cases, the detect work might be scheduled
@@ -3941,6 +3948,13 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		 * Cancel such the scheduled works.
 		 */
 		cancel_delayed_work_sync(&host->detect);
+
+		/*
+		 * It is possible that the wake-lock has been acquired, since
+		 * its being suspended, release the wakelock
+		 */
+		if (wake_lock_active(&host->detect_wake_lock))
+			wake_unlock(&host->detect_wake_lock);
 
 		if (!host->bus_ops || host->bus_ops->suspend)
 			break;

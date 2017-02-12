@@ -27,6 +27,9 @@
 #ifdef CONFIG_SHUB_ML630Q790
 #include <sharp/shub_driver.h>
 #endif
+#ifdef CONFIG_MPU_SENSORS_MPU6515
+#include <sharp/shmds_driver.h>
+#endif
 #ifdef CONFIG_SHTERM
 #include <sharp/shterm_k.h>
 #endif /* CONFIG_SHTERM */
@@ -144,6 +147,9 @@ static int qpnp_vib_set(struct qpnp_vib *vib, int on)
 #ifdef CONFIG_SHUB_ML630Q790
 		shub_api_stop_pedometer_func(SHUB_STOP_PED_TYPE_VIB);
 #endif
+#ifdef CONFIG_MPU_SENSORS_MPU6515
+		shmds_api_stop_pedometer_func(SHMDS_STOP_PED_TYPE_VIB);
+#endif
 		val = vib->reg_vtg_ctl;
 		val &= ~QPNP_VIB_VTG_SET_MASK;
 		val |= (vib->vtg_level & QPNP_VIB_VTG_SET_MASK);
@@ -170,6 +176,9 @@ static int qpnp_vib_set(struct qpnp_vib *vib, int on)
 	} else {
 #ifdef CONFIG_SHUB_ML630Q790
 		shub_api_restart_pedometer_func(SHUB_STOP_PED_TYPE_VIB);
+#endif
+#ifdef CONFIG_MPU_SENSORS_MPU6515
+		shmds_api_restart_pedometer_func(SHMDS_STOP_PED_TYPE_VIB);
 #endif
 		val = vib->reg_en_ctl;
 		val &= ~QPNP_VIB_EN;

@@ -22,6 +22,7 @@
 #include <linux/kthread.h>
 #include <linux/time.h>
 #include <linux/slab.h>
+#include <linux/pm_wakeup.h>
 #include <mach/board.h>
 
 #include <media/v4l2-dev.h>
@@ -54,6 +55,7 @@ struct wfd_device {
 	struct v4l2_subdev enc_sdev;
 	struct v4l2_subdev vsg_sdev;
 	struct ion_client *ion_client;
+	struct wakeup_source *ws;
 	bool secure;
 	bool in_use;
 	bool mdp_iommu_split_domain;
@@ -1466,6 +1468,7 @@ static int wfd_open(struct file *filp)
 		rc = -ENOMEM;
 		goto err_mdp_open;
 	}
+	__pm_stay_awake(wfd_dev->ws);
 	filp->private_data = &inst->event_handler;
 	mutex_init(&inst->lock);
 	mutex_init(&inst->vb2_lock);
@@ -1533,7 +1536,7 @@ err_mdp_open:
 	mutex_lock(&wfd_dev->dev_lock);
 	wfd_dev->in_use = false;
 	mutex_unlock(&wfd_dev->dev_lock);
-
+	__pm_relax(wfd_dev->ws);
 	kfree(inst);
 err_dev_busy:
 	return rc;
@@ -1571,6 +1574,7 @@ static int wfd_close(struct file *filp)
 		v4l2_fh_del(&inst->event_handler);
 		mutex_destroy(&inst->lock);
 		mutex_destroy(&inst->vb2_lock);
+		__pm_relax(wfd_dev->ws);
 		kfree(inst);
 	}
 
@@ -1674,7 +1678,7 @@ static int wfd_dev_setup(struct wfd_device *wfd_dev, int dev_num,
 		WFD_MSG_ERR("Failed to register vsg subdevice: %d\n", rc);
 		goto err_venc_init;
 	}
-
+	wfd_dev->ws = wakeup_source_register("WFD");
 	WFD_MSG_DBG("__wfd_probe: X\n");
 	return rc;
 
@@ -1790,6 +1794,7 @@ static int __devexit __wfd_remove(struct platform_device *pdev)
 		v4l2_device_unregister_subdev(&wfd_dev[c].vsg_sdev);
 		v4l2_device_unregister_subdev(&wfd_dev[c].enc_sdev);
 		v4l2_device_unregister_subdev(&wfd_dev[c].mdp_sdev);
+		wakeup_source_unregister(wfd_dev[c].ws);
 		video_unregister_device(wfd_dev[c].pvdev);
 		video_device_release(wfd_dev[c].pvdev);
 		v4l2_device_unregister(&wfd_dev[c].v4l2_dev);

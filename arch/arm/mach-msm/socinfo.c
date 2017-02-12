@@ -58,15 +58,9 @@ enum {
 	HW_PLATFORM_QRD	= 11,
 	HW_PLATFORM_HRD	= 13,
 	HW_PLATFORM_DTV	= 14,
-	HW_PLATFORM_WHAMU	= 48,
 	HW_PLATFORM_DL50	= 49,
 	HW_PLATFORM_AS99	= 50,
-	HW_PLATFORM_PA24	= 51,
-	HW_PLATFORM_GP9D	= 52,
 	HW_PLATFORM_DL60	= 53,
-	HW_PLATFORM_PA26	= 54,
-	HW_PLATFORM_AL15	= 55,
-	HW_PLATFORM_DL63	= 56,
 	HW_PLATFORM_INVALID
 };
 
@@ -83,15 +77,9 @@ const char *hw_platform[] = {
 	[HW_PLATFORM_QRD] = "QRD",
 	[HW_PLATFORM_HRD] = "HRD",
 	[HW_PLATFORM_DTV] = "DTV",
-	[HW_PLATFORM_WHAMU] = "WHAMU",
 	[HW_PLATFORM_DL50] = "DL50",
 	[HW_PLATFORM_AS99] = "AS99",
-	[HW_PLATFORM_PA24] = "PA24",
-	[HW_PLATFORM_GP9D] = "GP9D",
 	[HW_PLATFORM_DL60] = "DL60",
-	[HW_PLATFORM_PA26] = "PA26",
-	[HW_PLATFORM_AL15] = "AL15",
-	[HW_PLATFORM_DL63] = "DL63",
 };
 
 enum {
@@ -735,6 +723,8 @@ socinfo_show_platform_subtype(struct sys_device *dev,
 			char *buf)
 {
 	uint32_t hw_subtype;
+	WARN_ONCE(1, "Deprecated, use platform_subtype_id instead\n");
+
 	if (!socinfo) {
 		pr_err("%s: No socinfo found!\n", __func__);
 		return 0;
@@ -761,6 +751,18 @@ socinfo_show_platform_subtype(struct sys_device *dev,
 	}
 	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
 		hw_platform_subtype[hw_subtype]);
+}
+
+static ssize_t
+socinfo_show_platform_subtype_id(struct sys_device *dev,
+			struct sysdev_attribute *attr,
+			char *buf)
+{
+	uint32_t hw_subtype;
+
+	hw_subtype = socinfo_get_platform_subtype();
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		hw_subtype);
 }
 
 static ssize_t
@@ -883,6 +885,17 @@ msm_get_platform_subtype(struct device *dev,
 
 	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
 		hw_platform_subtype[hw_subtype]);
+}
+
+static ssize_t
+msm_get_platform_subtype_id(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	uint32_t hw_subtype;
+	hw_subtype = socinfo_get_platform_subtype();
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		hw_subtype);
 }
 
 static ssize_t
@@ -1040,6 +1053,8 @@ static struct sysdev_attribute socinfo_v5_files[] = {
 static struct sysdev_attribute socinfo_v6_files[] = {
 	_SYSDEV_ATTR(platform_subtype, 0444,
 			socinfo_show_platform_subtype, NULL),
+	_SYSDEV_ATTR(platform_subtype_id, 0444,
+			socinfo_show_platform_subtype_id, NULL),
 };
 
 static struct sysdev_attribute socinfo_v7_files[] = {
@@ -1124,6 +1139,13 @@ static struct device_attribute msm_soc_attr_accessory_chip =
 static struct device_attribute msm_soc_attr_platform_subtype =
 	__ATTR(platform_subtype, S_IRUGO,
 			msm_get_platform_subtype, NULL);
+
+/* Platform Subtype String is being deprecated. Use Platform
+ * Subtype ID instead.
+ */
+static struct device_attribute msm_soc_attr_platform_subtype_id =
+	__ATTR(platform_subtype_id, S_IRUGO,
+			msm_get_platform_subtype_id, NULL);
 
 static struct device_attribute msm_soc_attr_foundry_id =
 	__ATTR(foundry_id, S_IRUGO,
@@ -1225,6 +1247,8 @@ static void __init populate_soc_sysfs_files(struct device *msm_soc_device)
 	case 6:
 		device_create_file(msm_soc_device,
 					&msm_soc_attr_platform_subtype);
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_platform_subtype_id);
 	case 5:
 		device_create_file(msm_soc_device,
 					&msm_soc_attr_accessory_chip);

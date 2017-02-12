@@ -910,14 +910,6 @@ config USB_ANDROID_SH_MTP
 	help
 	  Provides USB mtp function for android gadget driver.
 
-config USB_ANDROID_MASS_STORAGE_CD
-	boolean "Android gadget mass storage function mounted CD images for sharp devices"
-	depends on USB_ANDROID_SH_CUST
-	default n
-	help
-	  Provides USB mass storage function for android gadget driver.
-	  This driver is made to mount CD images.
-
 config USB_CDC_COMPOSITE
 	tristate "CDC Composite Device (Ethernet and ACM)"
 	depends on NET

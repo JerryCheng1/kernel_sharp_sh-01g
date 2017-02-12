@@ -1,6 +1,6 @@
 /* drivers/sharp/shirda/shirda_ldisc.c (sharp IrDA driver)
  *
- * Copyright (C) 2011 - 2014 SHARP CORPORATION All rights reserved.
+ * Copyright (C) 2011 - 2015 SHARP CORPORATION All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -29,6 +29,8 @@
 #include <linux/serial.h>
 #include <linux/serial_core.h>
 
+#include SHIRDA_CONFIG_H
+
 #include "shirda_ldisc.h"
 #include "shirda_kdrv.h"
 
@@ -37,7 +39,8 @@ static void _shirda_ldisc_write_wakeup(unsigned long);
 #include "sharp/irda_common.h"
 #include "sharp/irda_kdrv_api.h"
 
-#define SHIRDA_LDISC_VERSION "02.10.00"
+#define SHIRDA_LDISC_VERSION "02.30.00"
+
 
 
 
@@ -86,15 +89,20 @@ static long ktime_to_nsec(ktime_t a)
 
 
 
+
+
+
+
+
+
+
 #define SHIRDA_TXREADY_WAIT 5000
 
 #define SHIRDA_TXEMPTY_WAIT 5000
 
 
-static unsigned long shirda_calculate_tx_time(
-	irda_boud_enum baud_rate,
-	unsigned long tx_frame_byte
-)
+static unsigned long shirda_calculate_tx_time(irda_boud_enum baud_rate,
+						unsigned long tx_frame_byte)
 {
 	unsigned long ret,bp10ms;
 
@@ -136,19 +144,15 @@ static unsigned long shirda_calculate_tx_time(
 	#define BIT_IN_A_CHAR 10
 	ret = (tx_frame_byte * BIT_IN_A_CHAR * 10000lu / bp10ms) + 1;
 
-	IRDALOG_INFO(
-		"baud_rate=%lu,byte=%lu,tx_time=%lu\n",
-		bp10ms*100,
-		tx_frame_byte,
-		ret
-	);
+	IRDALOG_INFO("baud_rate=%lu,byte=%lu,tx_time=%lu\n",
+								bp10ms*100,
+								tx_frame_byte,
+								ret);
 	return ret;
 }
 
-static unsigned long shirda_calculate_tx_timeout(
-	irda_boud_enum baud_rate,
-	unsigned long tx_frame_byte
-)
+static unsigned long shirda_calculate_tx_timeout(irda_boud_enum baud_rate,
+						unsigned long tx_frame_byte)
 {
 	#define MAX_TX_WAIT_TIMEOUT (HZ*3)
 	unsigned long ret,bps;
@@ -193,15 +197,15 @@ static unsigned long shirda_calculate_tx_timeout(
 	#define REDUNDANCY_COFFICIENT 2
 	#define MINIMUM_TIMEOUT 10
 	ret = tx_frame_byte * BIT_IN_A_CHAR * REDUNDANCY_COFFICIENT * HZ / bps
-	      + MINIMUM_TIMEOUT;
+							+ MINIMUM_TIMEOUT;
 
 	IRDALOG_INFO("shirda_calculate_tx_timeout =%lu\n", ret);
 	if (ret>MAX_TX_WAIT_TIMEOUT) {
 		IRDALOG_WARNING(
 			"calculated value is over max timeout =%lu  ==> %d\n",
 			ret,
-			MAX_TX_WAIT_TIMEOUT
-		);
+			MAX_TX_WAIT_TIMEOUT);
+
 		ret = MAX_TX_WAIT_TIMEOUT;
 	}
 	return ret;
@@ -209,8 +213,7 @@ static unsigned long shirda_calculate_tx_timeout(
 
 
 static void shirda_ldisc_init_mtt_keeper(
-	struct shirda_ldisc_mtt_keeper *mtt_kp
-)
+					struct shirda_ldisc_mtt_keeper *mtt_kp)
 {
 	mtt_kp->last_rx = ktime_set(0,0);
 	mtt_kp->need_mtt_flag = FALSE;
@@ -218,8 +221,7 @@ static void shirda_ldisc_init_mtt_keeper(
 }
 
 static void shirda_ldisc_update_mtt_keeper(
-	struct shirda_ldisc_mtt_keeper *mtt_kp
-)
+					struct shirda_ldisc_mtt_keeper *mtt_kp)
 {
 	down(&mtt_kp->sem);
 	mtt_kp->last_rx = ktime_get();
@@ -252,8 +254,7 @@ static void shirda_ldisc_wait_mtt(
 }
 
 static void shirda_ldisc_init_wakeup_queue(
-	struct shirda_ldisc_wakeup_queue *queue
-)
+				struct shirda_ldisc_wakeup_queue *queue)
 {
 	spin_lock_init(&queue->lock);
 	init_waitqueue_head(&queue->wait_queue);
@@ -261,8 +262,7 @@ static void shirda_ldisc_init_wakeup_queue(
 }
 
 static void shirda_ldisc_clear_wakeup_queue(
-	struct shirda_ldisc_wakeup_queue *queue
-)
+				struct shirda_ldisc_wakeup_queue *queue)
 {
 	unsigned long flag;
 	spin_lock_irqsave(&queue->lock, flag);
@@ -271,8 +271,7 @@ static void shirda_ldisc_clear_wakeup_queue(
 }
 
 static void shirda_ldisc_wakeup_que_increment_wp(
-	irda_kdrv_wakeup_que_struct* p_wque
-)
+					irda_kdrv_wakeup_que_struct* p_wque)
 {
 	p_wque->wp++;
 	if (p_wque->wp >= IRDA_KDRV_WU_EV_QUE_MAX) {
@@ -281,9 +280,8 @@ static void shirda_ldisc_wakeup_que_increment_wp(
 }
 
 static void shirda_ldisc_wakeup_event_enqueue_locked(
-	struct shirda_ldisc_wakeup_queue *queue,
-	irda_kdrv_wakeup_event_enum event
-)
+				struct shirda_ldisc_wakeup_queue *queue,
+				irda_kdrv_wakeup_event_enum event)
 {
 	unsigned short wp;
 	wp = queue->wakeup_queue.wp;
@@ -305,9 +303,8 @@ static void shirda_ldisc_wakeup_event_enqueue_locked(
 }
 
 static void shirda_ldisc_wakeup_event_enqueue(
-	struct shirda_ldisc_wakeup_queue *queue,
-	irda_kdrv_wakeup_event_enum event
-)
+				struct shirda_ldisc_wakeup_queue *queue,
+				irda_kdrv_wakeup_event_enum event)
 {
 	unsigned long flag;
 	spin_lock_irqsave(&queue->lock, flag);
@@ -316,8 +313,7 @@ static void shirda_ldisc_wakeup_event_enqueue(
 }
 
 static irda_kdrv_wakeup_event_enum shirda_ldisc_wakeup_event_dequeue_locked(
-	struct shirda_ldisc_wakeup_queue *queue
-)
+				struct shirda_ldisc_wakeup_queue *queue)
 {
 	irda_kdrv_wakeup_event_enum ret;
 	ret = queue->wakeup_queue.event[queue->wakeup_queue.rp];
@@ -330,8 +326,7 @@ static irda_kdrv_wakeup_event_enum shirda_ldisc_wakeup_event_dequeue_locked(
 }
 
 static irda_kdrv_wakeup_event_enum shirda_ldisc_wakeup_event_dequeue(
-	struct shirda_ldisc_wakeup_queue *queue
-)
+				struct shirda_ldisc_wakeup_queue *queue)
 {
 	irda_kdrv_wakeup_event_enum ret;
 	unsigned long flag;
@@ -342,49 +337,36 @@ static irda_kdrv_wakeup_event_enum shirda_ldisc_wakeup_event_dequeue(
 }
 
 static int shirda_ldisc_wait_event(
-	struct shirda_ldisc_wakeup_queue *queue
-)
+				struct shirda_ldisc_wakeup_queue *queue)
 {
 	int iret = 0;
-	IRDALOG_INFO(
-		"rp=%d,wp=%d",
-		queue->wakeup_queue.rp,
-		queue->wakeup_queue.wp
-	);
+	IRDALOG_INFO("rp=%d,wp=%d", queue->wakeup_queue.rp,
+						queue->wakeup_queue.wp);
 
-	iret = wait_event_interruptible(
-		queue->wait_queue,
-		(queue->wakeup_queue.rp != queue->wakeup_queue.wp)
-	);
-	if( iret < 0 ) {
+	iret = wait_event_interruptible(queue->wait_queue,
+			(queue->wakeup_queue.rp != queue->wakeup_queue.wp));
+
+	if (iret < 0) {
 		IRDALOG_ERROR("wait_event err=%d\n",iret);
 	}
 	return iret;
 }
 
 static long shirda_ldisc_wait_event_timeout(
-	struct shirda_ldisc_wakeup_queue *queue,
-	unsigned long timeout
-)
+				struct shirda_ldisc_wakeup_queue *queue,
+				unsigned long timeout)
 {
 	long remained;
-	IRDALOG_INFO(
-		"rp=%d,wp=%d",
-		queue->wakeup_queue.rp,
-		queue->wakeup_queue.wp
-	);
+	IRDALOG_INFO("rp=%d,wp=%d", queue->wakeup_queue.rp,
+						queue->wakeup_queue.wp);
 
-	remained = wait_event_interruptible_timeout(
-		queue->wait_queue,
-		(queue->wakeup_queue.rp != queue->wakeup_queue.wp),
-		timeout
-	);
+	remained = wait_event_interruptible_timeout(queue->wait_queue,
+			(queue->wakeup_queue.rp != queue->wakeup_queue.wp),
+			timeout);
 
 	if (remained == 0) {
-		shirda_ldisc_wakeup_event_enqueue(
-			queue,
-			IRDA_KDRV_WU_EV_ISR_TIMEOUT
-		);
+		shirda_ldisc_wakeup_event_enqueue(queue,
+						IRDA_KDRV_WU_EV_ISR_TIMEOUT);
 	} else if( remained < 0 ) {
 		IRDALOG_ERROR("wait_event err=%ld\n",remained);
 	}
@@ -392,26 +374,21 @@ static long shirda_ldisc_wait_event_timeout(
 }
 
 static enum hrtimer_restart shirda_ldisc_write_timekeeper_handler(
-	struct hrtimer *timer
-)
+							struct hrtimer *timer)
 {
-	struct shirda_ldisc_write_timekeeper *kp = container_of(
-		timer,
-		struct shirda_ldisc_write_timekeeper,
-		tx_timer
-	);
+	struct shirda_ldisc_write_timekeeper *kp = container_of(timer,
+					struct shirda_ldisc_write_timekeeper,
+					tx_timer);
 
 	kp->end = ktime_get();
-	shirda_ldisc_wakeup_event_enqueue(
-		&kp->admin->wakeup_queue,
-		IRDA_KDRV_WU_EV_ISR_SEND
-	);
+	shirda_ldisc_wakeup_event_enqueue(&kp->admin->wakeup_queue,
+						IRDA_KDRV_WU_EV_ISR_SEND);
+
 	return HRTIMER_NORESTART;
 }
 
 static void shirda_ldisc_write_timekeeper_init(
-	struct shirda_ldisc_write_timekeeper *kp
-)
+				struct shirda_ldisc_write_timekeeper *kp)
 {
 	kp->admin = container_of(kp, struct shirda_ldisc_admin_t, tx_kp);
 	hrtimer_init(&kp->tx_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -420,32 +397,26 @@ static void shirda_ldisc_write_timekeeper_init(
 }
 
 static void shirda_ldisc_write_timekeeper_write_wakeup(
-	struct shirda_ldisc_write_timekeeper *kp
-)
+				struct shirda_ldisc_write_timekeeper *kp)
 {
 	atomic_set(&kp->write_wakeup_flag, TRUE);
 }
 
 static void shirda_ldisc_write_timekeeper_start(
-	struct shirda_ldisc_write_timekeeper *kp,
-	unsigned long send_time
-)
+				struct shirda_ldisc_write_timekeeper *kp,
+				unsigned long send_time)
 {
 	unsigned long sec,usec;
 	usec = (send_time % 1000000lu);
 	sec = (send_time - usec) / 1000000lu;
 	kp->start = ktime_get();
-	hrtimer_start(
-		&kp->tx_timer,
-		ktime_set(sec, usec*1000lu),
-		HRTIMER_MODE_REL
-	);
+	hrtimer_start(&kp->tx_timer, ktime_set(sec, usec*1000lu),
+							HRTIMER_MODE_REL);
 }
 
 static int shirda_ldisc_write_timekeeper_wait(
-	struct shirda_ldisc_write_timekeeper *kp,
-	ktime_t now
-)
+				struct shirda_ldisc_write_timekeeper *kp,
+				ktime_t now)
 {
 	int repeat = 100;
 	int ret = 0;
@@ -453,16 +424,15 @@ static int shirda_ldisc_write_timekeeper_wait(
 	sleep = ktime_set(0,100000);
 
 
-	while (atomic_read(&kp->write_wakeup_flag)==FALSE && repeat>0) {
+	while ((atomic_read(&kp->write_wakeup_flag) == FALSE) &&
+								(repeat > 0)) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule_hrtimeout(&sleep, HRTIMER_MODE_REL);
 		repeat--;
 	}
 
-	if (atomic_read(&kp->write_wakeup_flag)==FALSE) {
-		IRDALOG_WARNING(
-			"Interrupt is not found.\n"
-		);
+	if (atomic_read(&kp->write_wakeup_flag) == FALSE) {
+		IRDALOG_WARNING("Interrupt is not found.\n");
 	} else {
 		long usec = ktime_to_nsec(ktime_sub(ktime_get(), now)) / 1000;
 		if (usec > SHIRDA_TXREADY_WAIT) {
@@ -486,27 +456,25 @@ static int shirda_ldisc_write_wakeup_wait(
 
 
 
-	sleep = ktime_set(0,1000000);
+	sleep = ktime_set(0, 1000000);
 
-	while (atomic_read(&kp->write_wakeup_flag)==FALSE && repeat>0) {
+	while ((atomic_read(&kp->write_wakeup_flag) == FALSE) && repeat>0) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule_hrtimeout(&sleep, HRTIMER_MODE_REL);
 		repeat--;
 	}
 
-	if (atomic_read(&kp->write_wakeup_flag)==FALSE) {
-		IRDALOG_WARNING(
-			" write-wakeup is not found\n"
-		);
+	if (atomic_read(&kp->write_wakeup_flag) == FALSE) {
+		IRDALOG_WARNING("write-wakeup is not found\n");
 	} else {
-		IRDALOG_INFO("found write-wakeup count=%d",repeat);
+		IRDALOG_INFO("found write-wakeup count=%d", repeat);
 	}
 
 	return ret;
 }
 
 static int shirda_ldisc_write_txempty_wait(struct tty_struct *tty,
-	ktime_t now)
+								ktime_t now)
 {
 	struct uart_state *state;
 	unsigned int tx_empty = 0;
@@ -515,7 +483,7 @@ static int shirda_ldisc_write_txempty_wait(struct tty_struct *tty,
 	int ret = 0;
 
 	state = (struct uart_state *)tty->driver_data;
-	sleep = ktime_set(0,100000);
+	sleep = ktime_set(0, 100000);
 
 	tx_empty = state->uart_port->ops->tx_empty(state->uart_port);
 
@@ -688,10 +656,8 @@ static int shirda_ldisc_check_qos(const irda_qos_info *set_qos_info)
 	return TRUE;
 }
 
-static int shirda_ldisc_set_qos_trunk(
-	struct tty_struct *tty,
-	const irda_qos_info *next_qos
-)
+static int shirda_ldisc_set_qos_trunk(struct tty_struct *tty,
+						const irda_qos_info *next_qos)
 {
 	speed_t baud_rate;
 	struct ktermios old_termios;
@@ -740,7 +706,6 @@ static int shirda_ldisc_open(struct tty_struct *tty)
 {
 	struct shirda_ldisc_admin_t *admin = &ldisc_admin;
 
-	IRDALOG_INFO("open\n");
 
 
 	down(&admin->sem);
@@ -788,8 +753,8 @@ static int shirda_ldisc_open(struct tty_struct *tty)
 	tty_driver_flush_buffer(tty);
 	shirda_ldisc_enable_rx(tty);
 
-	tasklet_init(&admin->tlet,
-		_shirda_ldisc_write_wakeup, (unsigned long)tty);
+	tasklet_init(&admin->tlet, _shirda_ldisc_write_wakeup,
+							(unsigned long)tty);
 
 
 
@@ -817,10 +782,8 @@ static void shirda_ldisc_close(struct tty_struct *tty)
 {
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
-	shirda_ldisc_wakeup_event_enqueue(
-		&SHIRDA_ADMIN(tty)->wakeup_queue,
-		IRDA_KDRV_WU_EV_CLOSE
-	);
+	shirda_ldisc_wakeup_event_enqueue(&SHIRDA_ADMIN(tty)->wakeup_queue,
+							IRDA_KDRV_WU_EV_CLOSE);
 
 	tasklet_kill(&admin->tlet);
 	down(&admin->sem);
@@ -828,12 +791,10 @@ static void shirda_ldisc_close(struct tty_struct *tty)
 	up(&admin->sem);
 }
 
-static ssize_t shirda_ldisc_read_READY(
-	struct tty_struct *tty,
-	struct file *file,
-	unsigned char __user *buf,
-	size_t nr
-)
+static ssize_t shirda_ldisc_read_READY(struct tty_struct *tty,
+						struct file *file,
+						unsigned char __user *buf,
+						size_t nr)
 {
 	int ret = 0;
 	int iret;
@@ -925,12 +886,10 @@ static ssize_t shirda_ldisc_read_READY(
 	return ret;
 }
 
-static ssize_t shirda_ldisc_read_LP_READY(
-	struct tty_struct *tty,
-	struct file *file,
-	unsigned char __user *buf,
-	size_t nr
-)
+static ssize_t shirda_ldisc_read_LP_READY(struct tty_struct *tty,
+						struct file *file,
+						unsigned char __user *buf,
+						size_t nr)
 {
 	int ret = 0;
 	int event;
@@ -951,8 +910,7 @@ static ssize_t shirda_ldisc_read_LP_READY(
 
 		down(&admin->sem);
 			event = shirda_ldisc_wakeup_event_dequeue(
-				&admin->wakeup_queue
-			);
+							&admin->wakeup_queue);
 
 			switch (event) {
 			case IRDA_KDRV_WU_EV_ISR_RECV:
@@ -1021,12 +979,10 @@ static ssize_t shirda_ldisc_read_LP_READY(
 	return ret;
 }
 
-static ssize_t shirda_ldisc_read_LP_RWAIT(
-	struct tty_struct *tty,
-	struct file *file,
-	unsigned char __user *buf,
-	size_t nr
-)
+static ssize_t shirda_ldisc_read_LP_RWAIT(struct tty_struct *tty,
+						struct file *file,
+						unsigned char __user *buf,
+						size_t nr)
 {
 	int ret = 0;
 	int event;
@@ -1035,19 +991,17 @@ static ssize_t shirda_ldisc_read_LP_RWAIT(
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
 	down(&admin->sem);
-	admin->state = SHIRDA_STATE_LP_RECEIVE;
+		admin->state = SHIRDA_STATE_LP_RECEIVE;
 	up(&admin->sem);
 
 	 while (exit_flag == FALSE) {
 		remained = shirda_ldisc_wait_event_timeout(
-			&admin->wakeup_queue,
-			remained
-		);
+							&admin->wakeup_queue,
+							remained);
 
 		down(&admin->sem);
 			event = shirda_ldisc_wakeup_event_dequeue(
-				&admin->wakeup_queue
-			);
+							&admin->wakeup_queue);
 
 			switch (event) {
 			case IRDA_KDRV_WU_EV_ISR_RECV:
@@ -1057,9 +1011,8 @@ static ssize_t shirda_ldisc_read_LP_RWAIT(
 				admin->recent_err = IRDA_LDISC_NO_ERR;
 
 				ret = shirda_ldisc_rx_queue_dequeue_to_user(
-					buf,
-					&admin->rx_queue
-				);
+							buf,
+							&admin->rx_queue);
 
 				if (ret == RX_QUE_COPY_ERROR) {
 					ret = -EFAULT;
@@ -1122,9 +1075,8 @@ static ssize_t shirda_ldisc_read(struct tty_struct *tty, struct file *file,
 	int ret = 0;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
-	if (in_interrupt()) {
+	if (in_interrupt())
 		return -EIO;
-	}
 
 	switch (admin->state) {
 	case SHIRDA_STATE_IDLE:
@@ -1163,12 +1115,10 @@ static ssize_t shirda_ldisc_read(struct tty_struct *tty, struct file *file,
 	return ret;
 }
 
-static ssize_t shirda_ldisc_write_READY(
-	struct tty_struct *tty,
-	struct file *file,
-	const unsigned char *buf,
-	size_t nr
-)
+static ssize_t shirda_ldisc_write_READY(struct tty_struct *tty,
+						struct file *file,
+						const unsigned char *buf,
+						size_t nr)
 {
 	int ret = 0;
 	int iret;
@@ -1217,22 +1167,15 @@ static ssize_t shirda_ldisc_write_READY(
 
 	sent_byte = admin->nr_tx_frame;
 	send_time = shirda_calculate_tx_time(admin->qos.baud_rate, sent_byte);
-	wait_time = shirda_calculate_tx_timeout(
-		admin->qos.baud_rate,
-		sent_byte
-	);
+	wait_time = shirda_calculate_tx_timeout(admin->qos.baud_rate,
+								sent_byte);
 	atomic_set(&admin->tx_kp.write_wakeup_flag, FALSE);
-	ret = tty->ops->write(
-		tty,
-		admin->tx_frame,
-		admin->nr_tx_frame);
+	ret = tty->ops->write(tty, admin->tx_frame, admin->nr_tx_frame);
 
 	shirda_ldisc_write_timekeeper_start(&admin->tx_kp, send_time);
 	if (ret < sent_byte) {
-		IRDALOG_ERROR(
-			"fatal error: writing is uncomplete."
-			"not all bytes are written."
-		);
+		IRDALOG_ERROR("fatal error: writing is uncomplete."
+						"not all bytes are written.");
 	}
 	if (ret > nr) {
 		ret = nr;
@@ -1342,12 +1285,10 @@ static ssize_t shirda_ldisc_write_READY(
 	return ret;
 }
 
-static ssize_t shirda_ldisc_write_LP_READY(
-	struct tty_struct *tty,
-	struct file *file,
-	const unsigned char *buf,
-	size_t nr
-)
+static ssize_t shirda_ldisc_write_LP_READY(struct tty_struct *tty,
+						struct file *file,
+						const unsigned char *buf,
+						size_t nr)
 {
 	int ret = 0;
 	unsigned long wait_time, sent_byte, send_time;
@@ -1479,12 +1420,10 @@ static ssize_t shirda_ldisc_write_LP_READY(
 	return ret;
 }
 
-static ssize_t shirda_ldisc_write(
-	struct tty_struct *tty,
-	struct file *file,
-	const unsigned char *buf,
-	size_t nr
-)
+static ssize_t shirda_ldisc_write(struct tty_struct *tty,
+						struct file *file,
+						const unsigned char *buf,
+						size_t nr)
 {
 	int ret = 0;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
@@ -1532,26 +1471,20 @@ static ssize_t shirda_ldisc_write(
 	return ret;
 }
 
-static int shirda_ldisc_set_qos(
-	struct tty_struct *tty,
-	const void __user *irda_qos
-)
+static int shirda_ldisc_set_qos(struct tty_struct *tty,
+					const void __user *irda_qos)
 {
-
 	int ret = 0;
 	irda_qos_info next_qos;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
-	IRDALOG_INFO("state=%d\n",admin->state);
 
 	switch (admin->state)
 	{
 	case SHIRDA_STATE_IDLE:
 		ret = -EINVAL;
 		admin->recent_err = IRDA_LDISC_LOGICAL_ERR;
-		IRDALOG_ERROR(
-			"logical error: unexpected state(IDLE)."
-		);
+		IRDALOG_ERROR("logical error: unexpected state(IDLE).");
 		break;
 
 	case SHIRDA_STATE_SEND_WAIT:
@@ -1568,7 +1501,8 @@ static int shirda_ldisc_set_qos(
 	case SHIRDA_STATE_MEDIABUSY:
 	case SHIRDA_STATE_LP_READY:
 	case SHIRDA_STATE_LP_WAITW:
-		if (copy_from_user(&next_qos,irda_qos,sizeof(irda_qos_info))) {
+		if (copy_from_user(&next_qos, irda_qos,
+						sizeof(irda_qos_info))) {
 			IRDALOG_ERROR("failed to copy from user\n");
 			ret = -EFAULT;
 		} else {
@@ -1614,15 +1548,11 @@ static int shirda_ldisc_rwakeup(struct tty_struct *tty)
 	down(&admin->sem);
 		IRDALOG_INFO("state=%d",admin->state);
 
-		if (
-			admin->state!=SHIRDA_STATE_SEND
-			&& admin->state!=SHIRDA_STATE_LP_SEND
-		)
-		{
+		if (admin->state!=SHIRDA_STATE_SEND &&
+					admin->state!=SHIRDA_STATE_LP_SEND) {
 			shirda_ldisc_wakeup_event_enqueue(
-				&SHIRDA_ADMIN(tty)->wakeup_queue,
-				IRDA_KDRV_WU_EV_USR_CANCEL
-			);
+					&SHIRDA_ADMIN(tty)->wakeup_queue,
+					IRDA_KDRV_WU_EV_USR_CANCEL);
 			ret = 0;
 		}
 	up(&admin->sem);
@@ -1635,9 +1565,8 @@ static int shirda_ldisc_get_err(struct tty_struct *tty, void __user *err_info)
 	int ret = 0;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
-	IRDALOG_INFO("shirda_ldisc_get_err()");
 
-	if (admin->state==SHIRDA_STATE_IDLE) {
+	if (admin->state == SHIRDA_STATE_IDLE) {
 		ret = -EINVAL;
 		admin->recent_err = IRDA_LDISC_LOGICAL_ERR;
 		IRDALOG_ERROR("logical error");
@@ -1653,15 +1582,12 @@ static int shirda_ldisc_get_err(struct tty_struct *tty, void __user *err_info)
 	return ret;
 }
 
-static int shirda_ldisc_get_mediabusy(
-	struct tty_struct *tty,
-	void __user *mbusy
-)
+static int shirda_ldisc_get_mediabusy(struct tty_struct *tty,
+							void __user *mbusy)
 {
 	int ret = 0;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
-	IRDALOG_INFO("shirda_ldisc_get_mediabusy()=%d\n",admin->media_busy);
 
 	if (copy_to_user(mbusy, &(admin->media_busy),
 					sizeof(admin->media_busy))) {
@@ -1676,7 +1602,6 @@ static int shirda_ldisc_clr_mediabusy(struct tty_struct *tty)
 	int ret = 0;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
-	IRDALOG_INFO("shirda_ldisc_clr_mediabusy()");
 
 	admin->media_busy = IRDA_LDISC_MEDIA_FREE;
 
@@ -1688,7 +1613,7 @@ static int shirda_ldisc_loopback_READY(struct tty_struct *tty)
 	int ret = 0;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
-	IRDALOG_INFO("state=%d",admin->state);
+
 	admin->state = SHIRDA_STATE_LP_READY;
 
 	return ret;
@@ -1699,11 +1624,11 @@ static int shirda_ldisc_loopback(struct tty_struct *tty)
 	int ret = 0;
 	struct shirda_ldisc_admin_t *admin = SHIRDA_ADMIN(tty);
 
-	IRDALOG_INFO("state=%d",admin->state);
 
 	if (down_interruptible(&admin->sem)) {
 		return -ERESTARTSYS;
 	}
+
 	switch (admin->state) {
 	case SHIRDA_STATE_READY:
 		ret = shirda_ldisc_loopback_READY(tty);
@@ -1815,8 +1740,7 @@ static int shirda_ldisc_get_capability(void __user *capa_info)
 				| IRDA_DRV_CAPA_DATA_SIZE_256
 				| IRDA_DRV_CAPA_DATA_SIZE_512
 				| IRDA_DRV_CAPA_DATA_SIZE_1024
-				| IRDA_DRV_CAPA_DATA_SIZE_2048
-,
+				| IRDA_DRV_CAPA_DATA_SIZE_2048,
 		}
 	};
 
@@ -1826,15 +1750,10 @@ static int shirda_ldisc_get_capability(void __user *capa_info)
 	return ret;
 }
 
-static int shirda_ldisc_ioctl(
-	struct tty_struct *tty,
-	struct file * file,
-	unsigned int cmd,
-	unsigned long arg
-)
+static int shirda_ldisc_ioctl(struct tty_struct *tty, struct file * file,
+					unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
-	IRDALOG_INFO("shirda_ldisc_ioctl()\n");
 
 	switch (cmd) {
 	case IRDA_DRV_IOCTL_SET_QOS:
@@ -1863,12 +1782,22 @@ static int shirda_ldisc_ioctl(
 		break;
 	default:
 		ret = -EINVAL;
-		IRDALOG_ERROR("unknown ioctl command.\n");
+		IRDALOG_ERROR("unknown ioctl command [0x%x]\n", cmd);
 		break;
 	}
 
 	return ret;
 }
+
+#ifdef	CONFIG_COMPAT
+static long compat_shirda_ldisc_ioctl(struct tty_struct *tty,
+		struct file * file, unsigned int cmd, unsigned long arg)
+{
+
+	return	shirda_ldisc_ioctl(tty, file, cmd,
+					(unsigned long)compat_ptr(arg));
+}
+#endif
 
 static void shirda_ldisc_receive_buf(struct tty_struct *tty,
 			const unsigned char *cp, char *fp, int count)
@@ -1912,7 +1841,6 @@ void shirda_async_bump(struct tty_struct *tty, iobuff_t *rx_buff)
 	irda_kdrv_wakeup_event_enum event;
 	int err;
 
-	IRDALOG_INFO("detected IrLAP frame\n");
 
 	if (shirda_ldisc_address_filter(rx_buff, &admin->qos)==FALSE) {
 		IRDALOG_INFO("trapped by address filter");
@@ -1939,10 +1867,8 @@ void shirda_async_bump(struct tty_struct *tty, iobuff_t *rx_buff)
 	rx_buff->truesize = MAX_RX_BUFF_SIZE;
 	rx_buff->fcs = 0;
 
-	shirda_ldisc_wakeup_event_enqueue(
-		&SHIRDA_ADMIN(tty)->wakeup_queue,
-		event
-	);
+	shirda_ldisc_wakeup_event_enqueue(&SHIRDA_ADMIN(tty)->wakeup_queue,
+									event);
 }
 
 static void shirda_ldisc_write_wakeup(struct tty_struct *tty)
@@ -1978,20 +1904,26 @@ struct tty_ldisc_ops shirda_ldisc_ops = {
 	.ioctl        = shirda_ldisc_ioctl,
 	.receive_buf  = shirda_ldisc_receive_buf,
 	.write_wakeup = shirda_ldisc_write_wakeup_tlet,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = compat_shirda_ldisc_ioctl,
+#endif
 };
 
 static int __init n_shirda_init(void)
 {
 	int err;
+
 	err = tty_register_ldisc(N_SHIRDA, &shirda_ldisc_ops);
-	if (err != 0) {
-		IRDALOG_ERROR(
-			"failed to register N_SHIRDA (error:%d).\n", err);
-	}
+	if (err != 0)
+		IRDALOG_ERROR("failed to register N_SHIRDA (error:%d).\n",
+									err);
 
 	sema_init(&ldisc_admin.sem,1);
 
 	ldisc_admin.state = SHIRDA_STATE_IDLE;
+
+
+
 
 	return err;
 }
@@ -2001,8 +1933,8 @@ static void __exit n_shirda_exit(void)
 	int err;
 	err = tty_unregister_ldisc(N_SHIRDA);
 	if (err != 0) {
-		IRDALOG_ERROR(
-			"failed to unregister N_SHIRDA (error:%d).\n",err);
+		IRDALOG_ERROR("failed to unregister N_SHIRDA (error:%d).\n",
+									err);
 	}
 }
 

@@ -5,25 +5,19 @@
 */
 /**************************************************************************************************/
 
+#include "gpio_def_tmm.h"
+
 #include <linux/module.h>
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
-#include <linux/poll.h>
-//#include <linux/smp_lock.h>
-#include <mach/vreg.h>
+#if defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
 #include <mach/gpio.h>
-#include <linux/clk.h>
-#include <asm/uaccess.h> /* for access_ok() */
-#include <linux/regulator/consumer.h> /* for regulator_xx() */
-#include <linux/delay.h>
+#endif
+#include <linux/err.h>
+#include <linux/gpio.h>
+#include <asm/uaccess.h>
+#include <linux/regulator/consumer.h>
 #include <linux/qpnp/pin.h>
-
-#include <asm/io.h>
-
-#include <mach/dma.h>
-#include <mach/msm_tsif.h>
-
-#include "gpio_def_tmm.h"
 
 #include <sharp/sh_smem.h>
 
@@ -61,8 +55,10 @@ stGPIO_DEF use_gpiono[] = {
 #if VALID_GPIO_DTVCANTSL
 	{GPIO_DTVCANTSL_PORTID	, GPIO_DTVCANTSL_PORTNO	, DirctionOut	, 0				, 0				, "gpio_dtv_cantsl"	},
 #endif
+#if defined(CONFIG_MACH_LYNX_DL60)
 #if VALID_GPIO_DTV_STDBY
 	{GPIO_DTV_STDBY_PORTID	, GPIO_DTV_STDBY_PORTNO	, DirctionOut	, 1				, 1				, "gpio_dtv_stdby"	},
+#endif
 #endif
 };
 
@@ -80,6 +76,7 @@ static int tuner_open(struct inode *inode, struct file *file)
 	int ret;
 
 	ret  = gpio_init();
+
 	if (ret == 1) {
 		/* Failed */
 		printk("%s:%d !!!tuner_open gpio_init() error \n", __FILE__, __LINE__);
@@ -215,9 +212,13 @@ static struct miscdevice tuner_dev = {
 /**************************************************************************************************/
 static int __init tuner_init(void)
 {
-	int ret, i ;
-	int loop = sizeof(use_gpiono)/sizeof(stGPIO_DEF);
-	unsigned int mpp_no, gpio_no;
+	int ret;
+	int i;
+	int loop = sizeof(use_gpiono) / sizeof(stGPIO_DEF);
+#if defined(CONFIG_MACH_LYNX_DL60)
+	unsigned int gpio_no;
+#endif
+	unsigned int mpp_no;
 
 	ret = misc_register(&tuner_dev);
 	if (ret) {
@@ -225,22 +226,30 @@ static int __init tuner_init(void)
 		return ret;
 	}
 
-	for(i=0; i<loop; i++){
+	for (i = 0; i < loop; i++) {
+#if defined(CONFIG_MACH_LYNX_DL60)
 		/* PMIC8941_GPIO */
-		if ( use_gpiono[i].no > PM8941_GPIO_BASE ) {
+		if (use_gpiono[i].no > PM8941_GPIO_BASE) {
 			gpio_no = use_gpiono[i].no - PM8941_GPIO_BASE;
-			ret = gpio_request( qpnp_pin_map("pm8941-gpio", gpio_no),  use_gpiono[i].label );
+			ret = gpio_request(qpnp_pin_map("pm8941-gpio", gpio_no), use_gpiono[i].label);
 		}
 		/* PMIC8841_MPP */
-		else if ( use_gpiono[i].no > PM8841_GPIO_BASE ) {
+		else if (use_gpiono[i].no > PM8841_GPIO_BASE) {
 			mpp_no = use_gpiono[i].no - PM8841_GPIO_BASE;
-			ret = gpio_request( qpnp_pin_map("pm8841-mpp", mpp_no),  use_gpiono[i].label );
+			ret = gpio_request(qpnp_pin_map("pm8841-mpp", mpp_no), use_gpiono[i].label);
 		}
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+		/* PMIC8841_MPP */
+		if (use_gpiono[i].no > PM8841_GPIO_BASE) {
+			mpp_no = use_gpiono[i].no - PM8841_GPIO_BASE;
+			ret = gpio_request(qpnp_pin_map("pm8841-mpp", mpp_no), use_gpiono[i].label);
+		}
+#endif
 		/* others */
 		else {
-			ret = gpio_request(use_gpiono[i].no , use_gpiono[i].label);
+			ret = gpio_request(use_gpiono[i].no, use_gpiono[i].label);
 		}
-		if(ret < 0){
+		if (ret < 0) {
 			printk(KERN_DEBUG "%s gpio_request() error : %d\n", use_gpiono[i].label, ret);
 		}
 	}
@@ -257,21 +266,32 @@ static int __init tuner_init(void)
 /**************************************************************************************************/
 static void __exit tuner_cleanup(void)
 {
-	int i ;
-	int loop = sizeof(use_gpiono)/sizeof(stGPIO_DEF);
-	unsigned int mpp_no, gpio_no;
+	int i;
+	int loop = sizeof(use_gpiono) / sizeof(stGPIO_DEF);
+#if defined(CONFIG_MACH_LYNX_DL60)
+	unsigned int gpio_no;
+#endif
+	unsigned int mpp_no;
 
-	for(i=0; i<loop; i++){
+	for (i = 0; i < loop; i++) {
+#if defined(CONFIG_MACH_LYNX_DL60)
 		/* PMIC8941_GPIO */
-		if ( use_gpiono[i].no > PM8941_GPIO_BASE ) {
+		if (use_gpiono[i].no > PM8941_GPIO_BASE) {
 			gpio_no = use_gpiono[i].no - PM8941_GPIO_BASE;
-			gpio_free( qpnp_pin_map("pm8941-gpio", gpio_no) );
+			gpio_free(qpnp_pin_map("pm8941-gpio", gpio_no));
 		}
 		/* PMIC8841_MPP */
-		else if ( use_gpiono[i].no > PM8841_GPIO_BASE ) {
+		else if (use_gpiono[i].no > PM8841_GPIO_BASE) {
 			mpp_no = use_gpiono[i].no - PM8841_GPIO_BASE;
-			gpio_free( qpnp_pin_map("pm8841-mpp", mpp_no) );
+			gpio_free(qpnp_pin_map("pm8841-mpp", mpp_no));
 		}
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+		/* PMIC8841_MPP */
+		if (use_gpiono[i].no > PM8841_GPIO_BASE) {
+			mpp_no = use_gpiono[i].no - PM8841_GPIO_BASE;
+			gpio_free(qpnp_pin_map("pm8841-mpp", mpp_no));
+		}
+#endif
 		/* others */
 		else {
 			gpio_free(use_gpiono[i].no);
@@ -291,42 +311,59 @@ static void __exit tuner_cleanup(void)
 /**************************************************************************************************/
 static int gpio_init(void)
 {
-	int loop = sizeof(use_gpiono)/sizeof(stGPIO_DEF);
-	int errcnt = 0;
+	int loop = sizeof(use_gpiono) / sizeof(stGPIO_DEF);
 	stGPIO_DEF *p = &use_gpiono[0];
 	int i;
-	unsigned int mpp_no, gpio_no;
-	
-	for (i=0; i<loop; i++, p++) {
+	int errcnt = 0;
+#if defined(CONFIG_MACH_LYNX_DL60)
+	unsigned int gpio_no;
+#endif
+	unsigned int mpp_no;
+
+	for (i = 0; i < loop; i++, p++) {
 		if (p->direction == DirctionIn) {
 			/* GPIO Input */
-			if ( p->no > PM8941_GPIO_BASE ) {
+#if defined(CONFIG_MACH_LYNX_DL60)
+			if (p->no > PM8941_GPIO_BASE) {
 				/* PMIC8941_GPIO */
 				gpio_no = p->no - PM8941_GPIO_BASE;
 
-				if (gpio_direction_input( qpnp_pin_map("pm8941-gpio", gpio_no) ) < 0) {
+				if (gpio_direction_input(qpnp_pin_map("pm8941-gpio", gpio_no)) < 0) {
 					/* Failed */
 					errcnt ++;
-					printk( "%s:%d gpio_direction_input error NO.%d \n", __FILE__,__LINE__, p->no);
+					printk("%s:%d gpio_direction_input error NO.%d \n", __FILE__, __LINE__, p->no);
 					continue;
 				}
 			}
-			else if ( p->no > PM8841_GPIO_BASE ) {
+			else if (p->no > PM8841_GPIO_BASE) {
 				/* PMIC8841_MPP */
 				mpp_no = p->no - PM8841_GPIO_BASE;
 
-				if (gpio_direction_input( qpnp_pin_map("pm8841-mpp", mpp_no) ) < 0) {
+				if (gpio_direction_input(qpnp_pin_map("pm8841-mpp", mpp_no)) < 0) {
 					/* Failed */
-					errcnt ++;
-					printk( "%s:%d gpio_direction_input error NO.%d \n", __FILE__,__LINE__, p->no);
+					errcnt++;
+					printk("%s:%d gpio_direction_input error NO.%d \n", __FILE__, __LINE__, p->no);
 					continue;
 				}
 			}
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+			if (p->no > PM8841_GPIO_BASE) {
+				/* PMIC8841_MPP */
+				mpp_no = p->no - PM8841_GPIO_BASE;
+
+				if (gpio_direction_input(qpnp_pin_map("pm8841-mpp", mpp_no)) < 0) {
+					/* Failed */
+					errcnt++;
+					printk("%s:%d gpio_direction_input error NO.%d \n", __FILE__, __LINE__, p->no);
+					continue;
+				}
+			}
+#endif
 			else {
 				if (gpio_direction_input(p->no) < 0) {
 					/* Failed */
-					errcnt ++;
-					printk( "%s:%d gpio_direction_input error NO.%d \n", __FILE__,__LINE__, p->no);
+					errcnt++;
+					printk("%s:%d gpio_direction_input error NO.%d \n", __FILE__, __LINE__, p->no);
 					continue;
 				}
 			}
@@ -335,32 +372,46 @@ static int gpio_init(void)
 		}
 		if (p->direction == DirctionOut) {
 			/* GPIO Output */
-			if ( p->no > PM8941_GPIO_BASE ) {
+#if defined(CONFIG_MACH_LYNX_DL60)
+			if (p->no > PM8941_GPIO_BASE) {
 				/* PMIC8941_GPIO */
 				gpio_no = p->no - PM8941_GPIO_BASE;
 
-				if (gpio_direction_output( qpnp_pin_map("pm8941-gpio", gpio_no), p->out_val ) < 0) {
+				if (gpio_direction_output(qpnp_pin_map("pm8941-gpio", gpio_no), p->out_val) < 0) {
 					/* Failed */
-					errcnt ++;
+					errcnt++;
 					printk("%s: gpio_direction_output error NO.%d \n", __FILE__, p->no);
 					continue;
 				}
 			}
-			else if ( p->no > PM8841_GPIO_BASE ) {
+			else if (p->no > PM8841_GPIO_BASE) {
 				/* PMIC8841_MPP */
 				mpp_no = p->no - PM8841_GPIO_BASE;
 
-				if (gpio_direction_output( qpnp_pin_map("pm8841-mpp", mpp_no), p->out_val ) < 0) {
+				if (gpio_direction_output(qpnp_pin_map("pm8841-mpp", mpp_no), p->out_val) < 0) {
 					/* Failed */
-					errcnt ++;
+					errcnt++;
 					printk("%s: gpio_direction_output error NO.%d \n", __FILE__, p->no);
 					continue;
 				}
 			}
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+			if (p->no > PM8841_GPIO_BASE) {
+				/* PMIC8841_MPP */
+				mpp_no = p->no - PM8841_GPIO_BASE;
+
+				if (gpio_direction_output(qpnp_pin_map("pm8841-mpp", mpp_no), p->out_val) < 0) {
+					/* Failed */
+					errcnt++;
+					printk("%s: gpio_direction_output error NO.%d \n", __FILE__, p->no);
+					continue;
+				}
+			}
+#endif
 			else {
 				if (gpio_direction_output(p->no, p->out_val) < 0) {
 					/* Failed */
-					errcnt ++;
+					errcnt++;
 					printk("%s: gpio_direction_output error NO.%d \n", __FILE__, p->no);
 					continue;
 				}
@@ -426,27 +477,41 @@ static int tuner_clk_disable(void)
 /**************************************************************************************************/
 static int gpio_set(unsigned int id, int value)
 {
-	int loop = sizeof(use_gpiono)/sizeof(stGPIO_DEF);
+	int loop = sizeof(use_gpiono) / sizeof(stGPIO_DEF);
 	stGPIO_DEF *p = use_gpiono;
 	int flag = 0;
 	int i;
 	int portno ;
-	unsigned int mpp_no, gpio_no;
+#if defined(CONFIG_MACH_LYNX_DL60)
+	unsigned int gpio_no;
+#endif
+	unsigned int mpp_no;
+#if defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+	unsigned gpio_cfg;
+#endif
 
-	for(i=0; i<loop; i++, p++){
-		if (p->id == id){
+	for (i = 0; i < loop; i++, p++) {
+		if (p->id == id) {
 			flag = 1;
 
-			if ( p->no > PM8941_GPIO_BASE ) {
+#if defined(CONFIG_MACH_LYNX_DL60)
+			if (p->no > PM8941_GPIO_BASE) {
 				/* PMIC8941_GPIO */
 				gpio_no = p->no - PM8941_GPIO_BASE;
 				portno = qpnp_pin_map("pm8941-gpio", gpio_no);
 			}
-			else if ( p->no > PM8841_GPIO_BASE ) {
+			else if (p->no > PM8841_GPIO_BASE) {
 				/* PMIC8841_MPP */
 				mpp_no = p->no - PM8841_GPIO_BASE;
 				portno = qpnp_pin_map("pm8841-mpp", mpp_no);
 			}
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+			if (p->no > PM8841_GPIO_BASE) {
+				/* PMIC8841_MPP */
+				mpp_no = p->no - PM8841_GPIO_BASE;
+				portno = qpnp_pin_map("pm8841-mpp", mpp_no);
+			}
+#endif
 			else {
 				portno = p->no ;
 			}
@@ -457,8 +522,29 @@ static int gpio_set(unsigned int id, int value)
 		printk("%s: !!! gpio_set() error No.%d value %d \n", __FILE__, id, value);
 		return EINVAL;
 	}
-//	gpio_set_value(portno, value);
+
+#if defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+	if ((portno == GPIO_DTVCANTSL_PORTNO) && (value == 1)) {	/* GPIO49 only */
+		if (0 == gpio_get_value_cansleep(portno)) {
+			/* L --> H */
+			gpio_cfg = GPIO_CFG(GPIO_DTVCANTSL_PORTNO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_10MA);
+			gpio_tlmm_config(gpio_cfg, GPIO_CFG_ENABLE);
+//			printk("%s:%d !!! gpio_set() GPIO49 L to H \n", __FILE__, __LINE__);
+		}
+	}
+#endif
+
 	gpio_set_value_cansleep(portno, value);
+
+#if defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+	if ((portno == GPIO_DTVCANTSL_PORTNO) && (value == 0)) {	/* GPIO49 only */
+		/* H --> L */
+		gpio_cfg = GPIO_CFG(GPIO_DTVCANTSL_PORTNO, 0, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_10MA);
+		gpio_tlmm_config(gpio_cfg, GPIO_CFG_ENABLE);
+//		printk("%s:%d !!! gpio_set() GPIO49 H to L \n", __FILE__, __LINE__);
+	}
+#endif
+
 	return 0;
 }
 
@@ -473,31 +559,41 @@ static int gpio_set(unsigned int id, int value)
 /**************************************************************************************************/
 static int gpio_get(unsigned int id, int *val)
 {
-	int loop = sizeof(use_gpiono)/sizeof(stGPIO_DEF);
+	int loop = sizeof(use_gpiono) / sizeof(stGPIO_DEF);
 	stGPIO_DEF *p = &use_gpiono[0];
 	int flag = 0;
 	int i;
 	int portno ;
-	unsigned int mpp_no, gpio_no;
+#if defined(CONFIG_MACH_LYNX_DL60)
+	unsigned int gpio_no;
+#endif
+	unsigned int mpp_no;
 
 	*val = 0;
-
-	for(i=0; i<loop; i++, p++){
-		if (p->id == id){
+	for (i = 0; i < loop; i++, p++) {
+		if (p->id == id) {
 			flag = 1;
 
-			if ( p->no > PM8941_GPIO_BASE ) {
+#if defined(CONFIG_MACH_LYNX_DL60)
+			if (p->no > PM8941_GPIO_BASE) {
 				/* PMIC8941_GPIO */
 				gpio_no = p->no - PM8941_GPIO_BASE;
 				portno = qpnp_pin_map("pm8941-gpio", gpio_no);
 			}
-			else if ( p->no > PM8841_GPIO_BASE ) {
+			else if (p->no > PM8841_GPIO_BASE) {
 				/* PMIC8841_MPP */
 				mpp_no = p->no - PM8841_GPIO_BASE;
 				portno = qpnp_pin_map("pm8841-mpp", mpp_no);
 			}
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
+			if (p->no > PM8841_GPIO_BASE) {
+				/* PMIC8841_MPP */
+				mpp_no = p->no - PM8841_GPIO_BASE;
+				portno = qpnp_pin_map("pm8841-mpp", mpp_no);
+			}
+#endif
 			else {
-				portno = p->no ;
+				portno = p->no;
 			}
 			break;
 		}
@@ -506,7 +602,6 @@ static int gpio_get(unsigned int id, int *val)
 		printk("%s: !!! gpio_get() No.%d error \n", __FILE__, id);
 		return EINVAL;
 	}
-//	*val = gpio_get_value(portno);
 	*val = gpio_get_value_cansleep(portno);
 
 	return 0;
@@ -522,38 +617,21 @@ static int gpio_get(unsigned int id, int *val)
 /**************************************************************************************************/
 static int tuner_vreg_enable(void)
 {
+	int ret;
+
 	struct regulator *reg;
-	struct device *dev = NULL;
+	struct device *dev = tuner_dev.this_device;
+#if defined(CONFIG_MACH_LYNX_DL60)
 	const char *id = "8941_s1";
-//	const char *id = "8941_l3";
 	int min_uV = 1300000, max_uV = 1300000;
-
-#if 0
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
 	/* for ADTV (1.8V -- LVS3) */
-	struct regulator *reg_18v;
-	struct device *dev_18v = tuner_dev.this_device;
-	const char *id_18v = "8941_lvs3";
-	int min_18v_uV = 1800000, max_18v_uV = 1800000;
-
-	reg_18v= regulator_get(dev_18v, id_18v);
-	if (IS_ERR(reg_18v)) {
-		printk("Unable to get %s regulator\n", id_18v);
-		return -1;
-	}
-
-    regulator_set_voltage(reg_18v, min_18v_uV, max_18v_uV);
-
-	if (!regulator_is_enabled(reg_18v)) {
-		regulator_enable(reg_18v);
-	}
-
-	regulator_put(reg_18v);
+	const char *id = "8941_lvs3";
+	int min_uV = 1800000, max_uV = 1800000;
 	/* --- */
-
-	msleep(1);
 #endif
 
-	reg= regulator_get(dev, id);
+	reg = regulator_get(dev, id);
 	if (IS_ERR(reg)) {
 		printk("Unable to get %s regulator\n", id);
 		return -1;
@@ -562,7 +640,7 @@ static int tuner_vreg_enable(void)
     regulator_set_voltage(reg, min_uV, max_uV);
 
 	if (!regulator_is_enabled(reg)) {
-		regulator_enable(reg);
+		ret = regulator_enable(reg);
 	}
 
 	regulator_put(reg);
@@ -580,46 +658,29 @@ static int tuner_vreg_enable(void)
 /**************************************************************************************************/
 static int tuner_vreg_disable(void)
 {
-	struct regulator *reg;
-	struct device *dev = NULL;
-	const char *id = "8941_s1";
-//	const char *id = "8941_l3";
+	int ret;
 
-#if 0
+	struct regulator *reg;
+	struct device *dev = tuner_dev.this_device;
+#if defined(CONFIG_MACH_LYNX_DL60)
+	const char *id = "8941_s1";
+#elif defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
 	/* for ADTV (1.8V -- LVS3) */
-	struct regulator *reg_18v;
-	struct device *dev_18v = tuner_dev.this_device;
-	const char *id_18v = "8941_lvs3";
+	const char *id = "8941_lvs3";
 	/* --- */
 #endif
 
-	reg= regulator_get(dev, id);
+	reg = regulator_get(dev, id);
 	if (IS_ERR(reg)) {
 		printk("Unable to get %s regulator\n", id);
 		return -1;
 	}
 
 	if (regulator_is_enabled(reg)) {
-		regulator_disable(reg);
+		ret = regulator_disable(reg);
 	}
 
 	regulator_put(reg);
-
-#if 0
-	/* for ADTV (1.8V -- LVS1) */
-	reg_18v= regulator_get(dev_18v, id_18v);
-	if (IS_ERR(reg_18v)) {
-		printk("Unable to get %s regulator\n", id_18v);
-		return -1;
-	}
-
-	if (regulator_is_enabled(reg_18v)) {
-		regulator_disable(reg_18v);
-	}
-
-	regulator_put(reg_18v);
-	/* --- */
-#endif
 
 	return 0;
 }
@@ -639,6 +700,7 @@ static int hw_revision_get(unsigned int *val)
 	sh_smem_common = (sharp_smem_common_type *)sh_smem_get_common_address();
 	if (sh_smem_common != NULL) {
 		*val = (unsigned int)sh_smem_common->sh_hw_revision;
+		printk(KERN_DEBUG "sh_hw_revision [%d] \n", *val);
 	}
 	else{
 		return -1;

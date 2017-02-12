@@ -65,8 +65,9 @@ extern int apparmor_initialized __initdata;
 char *aa_split_fqname(char *args, char **ns_name);
 void aa_info_message(const char *str);
 void *kvmalloc(size_t size);
+#ifndef CONFIG_SHSYS_CUST
 void kvfree(void *buffer);
-
+#endif
 
 /**
  * aa_strneq - compare null terminated @str to a non null terminated substring

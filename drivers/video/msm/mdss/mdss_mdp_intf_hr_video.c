@@ -302,17 +302,6 @@ void mdss_mdp_wait_sw_tg_off(void)
 }
 #endif /* CONFIG_SHDISP */
 
-#ifdef CONFIG_SHDISP /* CUST_ID_00012 (1HZ) */
-static inline struct mdss_mdp_ctl *mdss_mdp_get_split_ctl(
-		struct mdss_mdp_ctl *ctl)
-{
-	if (ctl && ctl->mixer_right && (ctl->mixer_right->ctl != ctl))
-		return ctl->mixer_right->ctl;
-
-	return NULL;
-}
-#endif /* CONFIG_SHDISP */
-
 #ifdef CONFIG_SHDISP /* CUST_ID_00012 (POL) */
 static int mdss_mdp_timegen_enable(struct mdss_mdp_ctl *ctl, bool enable);
 
@@ -1843,6 +1832,8 @@ static int mdss_mdp_hr_video_stop(struct mdss_mdp_ctl *ctl)
 		if (sctl)
 			mdss_mdp_irq_disable(MDSS_MDP_IRQ_INTF_UNDER_RUN,
 					sctl->intf_num);
+
+		mdss_bus_bandwidth_ctrl(false);
 	}
 
 	mdss_mdp_set_intr_callback(MDSS_MDP_IRQ_INTF_VSYNC, ctl->intf_num,
@@ -2328,8 +2319,18 @@ static int mdss_mdp_hr_video_config_fps(struct mdss_mdp_ctl *ctl,
 				usecs_to_jiffies(VSYNC_TIMEOUT_US));
 			WARN(rc <= 0, "timeout (%d) vsync interrupt on ctl=%d\n",
 				rc, ctl->num);
-			rc = 0;
 			video_vsync_irq_disable(ctl);
+            /* Do not configure fps on vsync timeout */
+			if (rc <= 0)
+				return rc;
+
+			if (mdss_mdp_hr_video_line_count(ctl) >=
+					pdata->panel_info.yres/2) {
+				pr_err("Too few lines left line_cnt = %d y_res/2 = %d\n",
+					mdss_mdp_hr_video_line_count(ctl),
+					pdata->panel_info.yres/2);
+				return -EPERM;
+			}
 
 			rc = mdss_mdp_hr_video_vfp_fps_update(ctl, new_fps);
 			if (rc < 0) {
@@ -2368,6 +2369,7 @@ static int mdss_mdp_hr_video_config_fps(struct mdss_mdp_ctl *ctl,
 static int mdss_mdp_hr_video_display(struct mdss_mdp_ctl *ctl, void *arg)
 {
 	struct mdss_mdp_hr_video_ctx *ctx;
+	struct mdss_mdp_ctl *sctl;
 	struct mdss_panel_data *pdata = ctl->panel_data;
 	int rc;
 
@@ -2421,7 +2423,8 @@ static int mdss_mdp_hr_video_display(struct mdss_mdp_ctl *ctl, void *arg)
 
 		pr_debug("enabling timing gen for intf=%d\n", ctl->intf_num);
 
-		if (pdata->panel_info.cont_splash_enabled) {
+		if (pdata->panel_info.cont_splash_enabled &&
+			!ctl->mfd->splash_info.splash_logo_enabled) {
 			rc = wait_for_completion_timeout(&ctx->vsync_comp,
 					usecs_to_jiffies(VSYNC_TIMEOUT_US));
 		}
@@ -2434,6 +2437,13 @@ static int mdss_mdp_hr_video_display(struct mdss_mdp_ctl *ctl, void *arg)
 		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON, false);
 
 		mdss_mdp_irq_enable(MDSS_MDP_IRQ_INTF_UNDER_RUN, ctl->intf_num);
+		sctl = mdss_mdp_get_split_ctl(ctl);
+		if (sctl)
+			mdss_mdp_irq_enable(MDSS_MDP_IRQ_INTF_UNDER_RUN,
+				sctl->intf_num);
+
+		mdss_bus_bandwidth_ctrl(true);
+
 #ifdef CONFIG_SHDISP /* CUST_ID_00012 (1HZ) */
 		mdss_mdp_hr_video_start_timer(ctx->ctl);
 #endif /* CONFIG_SHDISP */

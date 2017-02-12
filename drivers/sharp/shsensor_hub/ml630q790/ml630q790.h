@@ -29,8 +29,18 @@
 #include <linux/spi/spi.h>
 #include <linux/i2c.h>
 #include <linux/poll.h>
+// SHMDS_HUB_0701_05 add S
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+// SHMDS_HUB_0701_05 add E
+#include <linux/input.h> /* SHMDS_HUB_0308_01 add */
 #endif
 #include "shub_io.h"
+
+// SOFT SW
+//#define SHUB_SW_GPIO_PMIC           	/* SHMDS_HUB_0104_03 add */
+//#define SHUB_SW_PINCTRL             	/* SHMDS_HUB_1501_01 add */
+#define SHUB_SW_INPUT_SYNC_MOD      	/* SHMDS_HUB_1501_01 add */
 
 #define SENOSR_HUB_I2C_SLAVE_ADDRESS (0x2f)
 #define SENOSR_HUB_DRIVER_NAME    "sensorhub"
@@ -180,6 +190,86 @@ enum{
 };
 // SHMDS_HUB_0601_01 add E
 
+/* SHMDS_HUB_0110_01 add S */
+enum{
+    SHUB_GPIO_PIN_RESET,            // RESET
+    SHUB_GPIO_PIN_BRMP,             // BRMP
+    SHUB_GPIO_PIN_INT0,             // INT0
+    SHUB_GPIO_PIN_INT1,             // INT1
+    SHUB_GPIO_PIN_MAXNUM            // max number
+};
+
+enum{
+    SHUB_GPIO_PULL_DOWN,            // RESET
+    SHUB_GPIO_PULL_UP,              // BRMP
+    SHUB_GPIO_PULL_MAXNUM           // max number
+};
+/* SHMDS_HUB_0110_01 add E */
+
+/* SHMDS_HUB_0311_01 add S */
+enum{
+    SHUB_SAME_NOTIFY_GYRO,
+    SHUB_SAME_NOTIFY_MAG,
+    NUM_SHUB_SAME_NOTIFY_KIND
+};
+/* SHMDS_HUB_0311_01 add E */
+
+/* SHMDS_HUB_0308_01 add S */
+static inline void shub_input_set_value(struct input_dev *dev, unsigned code, int value)
+{
+/* SHMDS_HUB_0603_02 add S */
+	if(value == 0){
+		dev->absinfo[code].value = 1;
+	}else{
+		dev->absinfo[code].value = 0;
+	}	
+/* SHMDS_HUB_0603_02 add E */
+}
+/* SHMDS_HUB_0308_01 end E */
+
+/* SHMDS_HUB_0603_01 add S */
+#define SHUB_INPUT_VAL_CLEAR(dev, val ,value)      shub_input_set_value(dev, val, value)  /* SHMDS_HUB_0603_02 add (value) */
+/* SHMDS_HUB_0603_01 add S */
+
+/* SHMDS_HUB_0602_01 add S */
+static inline void shub_input_sync_init(struct input_dev *dev)
+{
+#ifndef SHUB_SW_INPUT_SYNC_MOD
+    dev->sync = 0; 
+#endif
+}
+/* SHMDS_HUB_0602_01 end E */
+
+/* SHMDS_HUB_0308_01 add S */
+static inline void shub_input_first_report(struct input_dev *dev, int value)
+{
+#ifdef SHUB_SW_INPUT_SYNC_MOD
+    dev->absinfo[ABS_RUDDER].value = 0;
+    input_report_abs(dev, ABS_RUDDER, value);
+#endif
+}
+
+static inline void shub_set_param_first(struct input_dev *dev)
+{
+#ifdef SHUB_SW_INPUT_SYNC_MOD
+    input_set_abs_params(dev, ABS_RUDDER, 0, 0x1, 0, 0);
+#endif
+}
+/* SHMDS_HUB_0308_01 end E */
+
+/* SHMDS_HUB_0110_01 add S */
+int shub_set_gpio_no( struct spi_device *client );
+int shub_get_gpio_no(int gpio);
+int shub_gpio_request(int gpio);
+int shub_gpio_free(int gpio);
+int shub_gpio_direction_output(int gpio, int data);
+int shub_gpio_direction_input(int gpio);
+int shub_gpio_set_value(int gpio, int data);
+int shub_gpio_get_value(int gpio);
+int shub_gpio_tlmm_config(int gpio, int data);
+int shub_gpio_to_irq(int gpio);
+/* SHMDS_HUB_0110_01 add E */
+
 // SHMDS_HUB_1101_01 add S
 void shub_qos_start(void);
 void shub_qos_end(void);
@@ -266,6 +356,7 @@ bool shub_fw_update_check(void);
 bool shub_connect_check(void);
 /* SHMDS_HUB_0201_01 add S */
 void shub_input_report_exif_grav_det(bool send);
+void shub_input_report_exif_ride_pause_det(bool send, int32_t info);    // SHMDS_HUB_0209_02 add
 void shub_input_report_exif_mot_det(unsigned char det_info);
 void shub_input_report_exif_shex_acc(int32_t *data);
 void shub_input_report_exif_judge(void);
@@ -290,6 +381,7 @@ void shub_set_param_check_exif(int type, int *data);    // SHMDS_HUB_0207_01 add
 void shub_get_param_check_exif(int type, int *data);    // SHMDS_HUB_0207_01 add
 void shub_set_enable_ped_exif_flg(int en);              // SHMDS_HUB_0207_01 add
 int shub_get_mcu_ped_enable(void);                      // SHMDS_HUB_0206_06 add
+void shub_exif_input_val_init(void);                    // SHMDS_HUB_0304_01 add
 
 void shub_suspend_acc(void);
 void shub_suspend_mag(void);
@@ -316,5 +408,33 @@ void shub_resume_rot(void);
 void shub_resume_rot_gyro(void);
 void shub_resume_rot_mag(void);
 void shub_resume_exif(void);    // SHMDS_HUB_0203_01 add
+
+/* SHMDS_HUB_0311_01 add S */
+int32_t shub_get_sensor_activate_info(int kind);
+int32_t shub_get_sensor_first_measure_info(int kind);
+int shub_get_sensor_same_delay_flg(int kind);
+/* SHMDS_HUB_0311_01 add E */
+
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_input_exif(struct seq_file *s);
+void shub_sensor_rep_input_acc(struct seq_file *s);
+void shub_sensor_rep_input_gyro(struct seq_file *s);
+void shub_sensor_rep_input_gyro_uncal(struct seq_file *s);
+void shub_sensor_rep_input_mag(struct seq_file *s);
+void shub_sensor_rep_input_mag_uncal(struct seq_file *s);
+void shub_sensor_rep_input_orien(struct seq_file *s);
+void shub_sensor_rep_input_grav(struct seq_file *s);
+void shub_sensor_rep_input_linear(struct seq_file *s);
+void shub_sensor_rep_input_rot(struct seq_file *s);
+void shub_sensor_rep_input_game_rot_gyro(struct seq_file *s);
+void shub_sensor_rep_input_rot_mag(struct seq_file *s);
+void shub_sensor_rep_input_pedo(struct seq_file *s);
+void shub_sensor_rep_input_pedodect(struct seq_file *s);
+
+void shub_sensor_rep_input_mcu(struct seq_file *s);
+void shub_sensor_rep_spi(struct seq_file *s);
+// SHMDS_HUB_0701_05 add E
+
+int32_t shub_get_acc_delay_ms(void);		/* SHMDS_HUB_0313_01 add */
 
 #endif /* _ML630Q790_H_ */

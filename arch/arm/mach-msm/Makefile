@@ -273,40 +273,16 @@ obj-$(CONFIG_ARCH_MSM9615) += board-9615.o devices-9615.o board-9615-regulator.o
 obj-$(CONFIG_ARCH_MSM9615) += clock-local.o clock-9615.o acpuclock-9615.o clock-rpm.o clock-pll.o
 obj-$(CONFIG_ARCH_APQ8084) += board-8084.o board-8084-gpiomux.o
 obj-$(CONFIG_ARCH_APQ8084) += clock-8084.o
-ifdef CONFIG_MACH_WHAMU
-obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-whamu.o
-else
 ifdef CONFIG_MACH_LYNX_DL50
 obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-lynx-dl50.o
 else
 ifdef CONFIG_MACH_DECKARD_AS99
 obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-deckard-as99.o
 else
-ifdef CONFIG_MACH_EBZ
-obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-ebz.o
-else
-ifdef CONFIG_MACH_LYNX_GP9D
-obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-lynx-gp9d.o
-else
-ifdef CONFIG_MACH_LYNX_DL63
-obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-lynx-dl60.o
-else
 ifdef CONFIG_MACH_LYNX_DL60
 obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-lynx-dl60.o
 else
-ifdef CONFIG_MACH_REN
-obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-pa26.o
-else
-ifdef CONFIG_MACH_DECKARD_AL15
-obj-$(CONFIG_ARCH_MSM8974) += board-sharp.o board-sharp-gpiomux-deckard-al15.o
-else
 obj-$(CONFIG_ARCH_MSM8974) += board-8974.o board-8974-gpiomux.o
-endif
-endif
-endif
-endif
-endif
-endif
 endif
 endif
 endif

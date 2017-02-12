@@ -50,9 +50,15 @@
 
 #include "sdhci-pltfm.h"
 
-#ifdef CONFIG_MMC_SD_CD_ACTIVE_HIGH_CUST_SH
+#if defined(CONFIG_MMC_SD_CD_ACTIVE_HIGH_CUST_SH) || (defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH))
 #include <sharp/sh_boot_manager.h>
-#endif /* CONFIG_MMC_SD_CD_ACTIVE_HIGH_CUST_SH */
+#endif /* defined(CONFIG_MMC_SD_CD_ACTIVE_HIGH_CUST_SH) || (defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH)) */
+
+#if defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH)
+#define SH_REV_SDC_ES0	0x0
+#define SH_REV_SDC_ES1	0x2
+#define SH_REV_SDC_PP1	0x6
+#endif /* defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH) */
 
 enum sdc_mpm_pin_state {
 	SDC_DAT1_DISABLE,
@@ -181,6 +187,16 @@ enum sdc_mpm_pin_state {
 
 #define sdhci_is_valid_mpm_wakeup_int(_h) ((_h)->pdata->mpm_sdiowakeup_int >= 0)
 #define sdhci_is_valid_gpio_wakeup_int(_h) ((_h)->pdata->sdiowakeup_irq >= 0)
+
+#ifdef CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH
+#define NUM_TUNING_PHASES		16
+#define MAX_DRV_TYPES_SUPPORTED_HS200	4
+#endif /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
+
+#ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
+extern int sh_mmc_status_flags;
+#endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
+
 
 static const u32 tuning_block_64[] = {
 	0x00FF0FFF, 0xCCC3CCFF, 0xFFCC3CC3, 0xEFFEFFFE,
@@ -374,12 +390,17 @@ static int sdpwr_en = 0;
 #ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
 #define EMMC_HS200_TUNING_RETRY_MAX 3
 bool emmc_force_hs200_tuning = true;
-static u8 emmc_pre_phase    = 0xFF;
+static u8 emmc_pre_phase = 0xFF;
 #endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
 
 #ifdef CONFIG_HS400_TUNING_EMMC_CUST_SH
 extern bool emmc_start_recovering_error;
 #endif /* CONFIG_HS400_TUNING_EMMC_CUST_SH */
+
+#ifdef CONFIG_ALL_PHASE_PASS_EMMC_CUST_SH
+static u8 emmc_default_phase = 11;
+static bool emmc_all_phase_pass_state = false;
+#endif /* CONFIG_ALL_PHASE_PASS_EMMC_CUST_SH */
 
 #ifdef CONFIG_MMC_SD_PENDING_RESUME_CUST_SH
 static int sh_sdhci_msm_sd_pwrirq_num = -1;
@@ -897,6 +918,36 @@ static int sdhci_msm_cdclp533_initialization(struct sdhci_host *host)
 }
 #endif /* CONFIG_HS400_TUNING_EMMC_CUST_SH */
 
+#ifdef CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH
+static void sdhci_msm_set_mmc_drv_type(struct sdhci_host *host, u32 opcode,
+		u8 drv_type)
+{
+	struct mmc_command cmd = {0};
+	struct mmc_request mrq = {NULL};
+	struct mmc_host *mmc = host->mmc;
+	u8 val = ((drv_type << 4) | 2);
+
+	cmd.opcode = MMC_SWITCH;
+	cmd.arg = (MMC_SWITCH_MODE_WRITE_BYTE << 24) |
+		(EXT_CSD_HS_TIMING << 16) |
+		(val << 8) |
+		EXT_CSD_CMD_SET_NORMAL;
+	cmd.flags = MMC_CMD_AC | MMC_RSP_R1B;
+	/* 1 sec */
+	cmd.cmd_timeout_ms = 1000 * 1000;
+
+	memset(cmd.resp, 0, sizeof(cmd.resp));
+	cmd.retries = 3;
+
+	mrq.cmd = &cmd;
+	cmd.data = NULL;
+
+	mmc_wait_for_req(mmc, &mrq);
+	pr_debug("%s: %s: set card drive type to %d\n",
+			mmc_hostname(mmc), __func__,
+			drv_type);
+}
+#endif /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
 
 int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 {
@@ -915,6 +966,16 @@ int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 	int i;
 	unsigned long tuning_result;
 #endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
+#ifdef CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH
+	u8 drv_type = 0;
+	bool drv_type_changed = false;
+	struct mmc_card *card = host->mmc->card;
+#ifdef CONFIG_HS200_DRIVER_TYPE_EMMC_CUST_SH
+	int default_drv_type = CONFIG_HS200_DRIVER_TYPE_EMMC_CUST_SH;
+#else
+	int default_drv_type = 0;
+#endif /* CONFIG_HS200_DRIVER_TYPE_EMMC_CUST_SH */
+#endif /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
 
 	/*
 	 * Tuning is required for SDR104, HS200 and HS400 cards and
@@ -927,12 +988,13 @@ int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 		return 0;
 
 	pr_debug("%s: Enter %s\n", mmc_hostname(mmc), __func__);
+
 #ifdef CONFIG_HS400_TUNING_EMMC_CUST_SH
-	if (!strncmp( mmc_hostname(mmc),  HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) &&
+	if (!strncmp(mmc_hostname(mmc),  HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) &&
 		(emmc_start_recovering_error == true) &&
 		msm_host->tuning_done) {
 		emmc_start_recovering_error = false;
-		msm_host->tuning_done  = false;
+		msm_host->tuning_done = false;
 		sdhci_msm_cdclp533_initialization(host);
 	}
 #endif /* CONFIG_HS400_TUNING_EMMC_CUST_SH */
@@ -960,7 +1022,7 @@ int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 #ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
 	if (!strncmp( mmc_hostname(mmc),  HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) &&
 		(emmc_pre_phase != 0xFF) &&
-		(emmc_force_hs200_tuning == false)){
+		(emmc_force_hs200_tuning == false)) {
 
 		/* first of all reset the tuning block */
 		rc = msm_init_cm_dll(host);
@@ -968,15 +1030,15 @@ int sdhci_msm_execute_tuning(struct sdhci_host *host, u32 opcode)
 			goto out;
 
 		rc = msm_config_cm_dll_phase(host, emmc_pre_phase);
-		if (rc){
-			pr_err( "%s : msm_config_cm_dll_phase() rc=%d\n",
-				mmc_hostname(mmc), rc );
+		if (rc) {
+			pr_err("%s : msm_config_cm_dll_phase() rc=%d\n",
+				mmc_hostname(mmc), rc);
 
 			rc = -EIO;
 			goto out;
 		}
-		pr_debug( "%s : skip tuning. phase=%d\n", mmc_hostname(mmc),
-			emmc_pre_phase );
+		pr_debug("%s : skip tuning. phase=%d\n", mmc_hostname(mmc),
+			emmc_pre_phase);
 		return 0;
 	}
 #endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
@@ -1025,6 +1087,14 @@ retry:
 		memset(data_buf, 0, size);
 		mmc_wait_for_req(mmc, &mrq);
 
+		/*
+		 * wait for 146 MCLK cycles for the card to send out the data
+		 * and thus move to TRANS state. As the MCLK would be minimum
+		 * 200MHz when tuning is performed, we need maximum 0.73us
+		 * delay. To be on safer side 1ms delay is given.
+		 */
+		if (cmd.error)
+			usleep_range(1000, 1200);
 		if (!cmd.error && !data.error &&
 			!memcmp(data_buf, tuning_block_pattern, size)) {
 			/* tuning is successful at this tuning point */
@@ -1034,31 +1104,128 @@ retry:
 		}
 	} while (++phase < 16);
 
-#ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
-	if (!strncmp( mmc_hostname(mmc),  HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) &&
-		(tuned_phase_cnt == phase) &&
-		(retry_count++ < EMMC_HS200_TUNING_RETRY_MAX )){
-		pr_warn( "%s : retry tuning(%d)\n", mmc_hostname(mmc), retry_count);
-		goto retry;
+#ifdef CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH
+	if (((tuned_phase_cnt == NUM_TUNING_PHASES) ||
+			((tuned_phase_cnt == 0) && (drv_type_changed))) &&
+			card && mmc_card_mmc(card)) {
+		/*
+		 * If all phases pass then its a problem. So change the card's
+		 * drive type to a different value, if supported and repeat
+		 * tuning until at least one phase fails. Then set the original
+		 * drive type back.
+		 *
+		 * If all the phases still pass after trying all possible
+		 * drive types, then one of those 16 phases will be picked.
+		 * This is no different from what was going on before the
+		 * modification to change drive type and retune.
+		 */
+		if (retry_count == 0) {
+			drv_type = 0;
+			pr_debug("%s: tuned phases count: %d, drv_type: %d, retry_count:%d\n", mmc_hostname(mmc),
+				tuned_phase_cnt, default_drv_type, retry_count);
+		}
+		else {
+			pr_debug("%s: tuned phases count: %d, drv_type: %d, retry_count:%d\n", mmc_hostname(mmc),
+				tuned_phase_cnt, drv_type, retry_count);
+			drv_type++;
+		}
+
+		/* set drive type to other value . default setting is 0x0 */
+		while (drv_type <= MAX_DRV_TYPES_SUPPORTED_HS200) {
+			if (drv_type == default_drv_type) {
+				drv_type++;
+				continue;
+			}
+
+			if (card->ext_csd.raw_drive_strength &
+					(1 << drv_type)) {
+				sdhci_msm_set_mmc_drv_type(host, opcode,
+						drv_type);
+				if (!drv_type_changed)
+					drv_type_changed = true;
+				retry_count++;
+				pr_debug("%s: retry new drv_type: %d\n", mmc_hostname(mmc),
+						drv_type);
+				pr_warn("%s : retry tuning(%d) drv_type(%d)\n",
+					mmc_hostname(mmc), retry_count, drv_type);
+				goto retry;
+			}
+			drv_type++;
+		}
 	}
 
-	if (!strncmp( mmc_hostname(mmc),  HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) &&
-		(tuned_phase_cnt == phase) ){
+	/* reset drive type to default if changed */
+	if (drv_type_changed)
+		sdhci_msm_set_mmc_drv_type(host, opcode, default_drv_type);
+#else /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
+#ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
+	if (!strncmp(mmc_hostname(mmc), HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) &&
+		(tuned_phase_cnt == phase) &&
+		(retry_count++ < EMMC_HS200_TUNING_RETRY_MAX)) {
+		pr_warn("%s : retry tuning(%d)\n", mmc_hostname(mmc), retry_count);
+		goto retry;
+	}
+#endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
+#endif /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
+
+#ifndef CONFIG_ALL_PHASE_PASS_EMMC_CUST_SH
+#ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
+	if (!strncmp(mmc_hostname(mmc), HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) &&
+		(tuned_phase_cnt == phase)) {
 		pr_err("%s: %s: tuning point is unreliable\n",
 			mmc_hostname(mmc), __func__);
 		rc = -EIO;
+		sh_mmc_status_flags = -1;
 		goto kfree;
 	}
 #endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
+#endif /* CONFIG_ALL_PHASE_PASS_EMMC_CUST_SH */
 
 	if (tuned_phase_cnt) {
+#ifdef CONFIG_ALL_PHASE_PASS_EMMC_CUST_SH
+		if (!strncmp(mmc_hostname(mmc), HOST_MMC_MMC, sizeof(HOST_MMC_MMC))) {
+			if (tuned_phase_cnt == phase) {
+				if (!emmc_all_phase_pass_state) {
+					phase = emmc_default_phase;
+					pr_info("%s: %s: setting the default tuning phase to %d\n",
+						mmc_hostname(mmc), __func__, phase);
+					emmc_all_phase_pass_state = true;
+				}
+				else {
+					pr_err("%s: %s: tuning point is unreliable\n",
+						mmc_hostname(mmc), __func__);
+					rc = -EIO;
+					sh_mmc_status_flags = -1;
+					goto kfree;
+				}
+			}
+			else {
+				rc = msm_find_most_appropriate_phase(host, tuned_phases,
+									tuned_phase_cnt);
+				if (rc < 0)
+					goto kfree;
+				else
+					phase = (u8)rc;
+				emmc_all_phase_pass_state = false;
+				emmc_default_phase = phase;
+			}
+		}
+		else {
+			rc = msm_find_most_appropriate_phase(host, tuned_phases,
+								tuned_phase_cnt);
+			if (rc < 0)
+				goto kfree;
+			else
+				phase = (u8)rc;
+		}
+#else /* CONFIG_ALL_PHASE_PASS_EMMC_CUST_SH */
 		rc = msm_find_most_appropriate_phase(host, tuned_phases,
 							tuned_phase_cnt);
 		if (rc < 0)
 			goto kfree;
 		else
 			phase = (u8)rc;
-
+#endif /* CONFIG_ALL_PHASE_PASS_EMMC_CUST_SH */
 		/*
 		 * Finally set the selected phase in delay
 		 * line hw block.
@@ -1070,16 +1237,18 @@ retry:
 		pr_debug("%s: %s: finally setting the tuning phase to %d\n",
 				mmc_hostname(mmc), __func__, phase);
 #ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
-		if (!strncmp( mmc_hostname(mmc),  HOST_MMC_MMC, sizeof(HOST_MMC_MMC))){
-			emmc_pre_phase          = phase;
+		if (!strncmp(mmc_hostname(mmc), HOST_MMC_MMC, sizeof(HOST_MMC_MMC))) {
+			emmc_pre_phase = phase;
 			emmc_force_hs200_tuning = false;
 			tuning_result = 0;
-			for( i = 0; i < tuned_phase_cnt; i++ ){
+			for (i = 0; i < tuned_phase_cnt; i++) {
 				tuning_result |= 1<<tuned_phases[i];
 			}
-			pr_info( "%s : tuning succeeded. %d:%04lX:%d\n",
+			pr_info("%s : tuning succeeded. %d:%04lX:%d\n",
 				mmc_hostname(mmc), phase,
-				tuning_result, retry_count );
+				tuning_result, retry_count);
+
+			sh_mmc_status_flags = retry_count;
 		}
 #endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
 	} else {
@@ -1089,6 +1258,9 @@ retry:
 		pr_err("%s: %s: no tuning point found\n",
 			mmc_hostname(mmc), __func__);
 		rc = -EIO;
+#ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
+		sh_mmc_status_flags = -1;
+#endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
 	}
 
 kfree:
@@ -1382,6 +1554,11 @@ static int sdhci_msm_dt_get_pad_drv_info(struct device *dev, int id,
 	u32 *tmp;
 	struct sdhci_msm_pad_drv_data *drv_data;
 	struct sdhci_msm_pad_drv *drv;
+#if defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH)
+	unsigned short rev;
+
+	rev = sh_boot_get_hw_revision();
+#endif /* defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH) */
 
 	switch (id) {
 	case 1:
@@ -1433,6 +1610,14 @@ static int sdhci_msm_dt_get_pad_drv_info(struct device *dev, int id,
 		dev_dbg(dev, "%s: val[%d]=0x%x\n", __func__,
 				i, drv_data->on[i].val);
 	}
+
+#if defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH)
+	if ((id == 2) && ((rev == SH_REV_SDC_ES0) || (rev == SH_REV_SDC_ES1) ||
+		(rev == SH_REV_SDC_PP1))) {
+		pr_info("Setting Drive Strength for SD_CLK: 12mA.\n");
+		drv_data->on[0].val = 5;
+	}
+#endif /* defined(CONFIG_MACH_LYNX_DL50) && defined(CONFIG_MMC_SD_CUST_SH) */
 
 	ret = sdhci_msm_dt_get_array(dev, "qcom,pad-drv-off",
 			&tmp, &len, drv_data->size);
@@ -3240,13 +3425,12 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 
 	/* Set clock gating delay to be used when CONFIG_MMC_CLKGATE is set */
 #ifdef CONFIG_CLKGATE_TIME_EMMC_CUST_SH
-	if (!strncmp(mmc_hostname(host->mmc), HOST_MMC_MMC, sizeof(HOST_MMC_MMC))) {
+	if (!strncmp(mmc_hostname(host->mmc), HOST_MMC_MMC, sizeof(HOST_MMC_MMC)))
 		msm_host->mmc->clkgate_delay = SDHCI_MSM_MMC_CLK_GATE_DELAY_FOR_EMMC;
-	} else {
-#endif /* CONFIG_CLKGATE_TIME_EMMC_CUST_SH */
+	else
+		msm_host->mmc->clkgate_delay = SDHCI_MSM_MMC_CLK_GATE_DELAY;
+#else /* CONFIG_CLKGATE_TIME_EMMC_CUST_SH */
 	msm_host->mmc->clkgate_delay = SDHCI_MSM_MMC_CLK_GATE_DELAY;
-#ifdef CONFIG_CLKGATE_TIME_EMMC_CUST_SH
-	}
 #endif /* CONFIG_CLKGATE_TIME_EMMC_CUST_SH */
 
 	/* Set host capabilities */
@@ -3276,12 +3460,17 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 				MMC_CAP2_DETECT_ON_ERR);
 	msm_host->mmc->caps2 |= MMC_CAP2_SANITIZE;
 #ifdef CONFIG_INVALIDATE_CACHE_CTRL_EMMC_CUST_SH
-	if (strncmp( mmc_hostname(host->mmc),  HOST_MMC_MMC,
+	if (strncmp(mmc_hostname(host->mmc), HOST_MMC_MMC,
 			sizeof(HOST_MMC_MMC)) != 0)
 		msm_host->mmc->caps2 |= MMC_CAP2_CACHE_CTRL;
 #else  /* CONFIG_INVALIDATE_CACHE_CTRL_EMMC_CUST_SH */
 	msm_host->mmc->caps2 |= MMC_CAP2_CACHE_CTRL;
 #endif /* CONFIG_INVALIDATE_CACHE_CTRL_EMMC_CUST_SH */
+#ifdef CONFIG_ANDROID_RECOVERY_BUILD
+	if (!strncmp(mmc_hostname(host->mmc), HOST_MMC_MMC,
+			sizeof(HOST_MMC_MMC)))
+		msm_host->mmc->caps2 &= ~MMC_CAP2_CACHE_CTRL;
+#endif /* CONFIG_ANDROID_RECOVERY_BUILD */
 	msm_host->mmc->caps2 |= MMC_CAP2_POWEROFF_NOTIFY;
 	msm_host->mmc->caps2 |= MMC_CAP2_CLK_SCALE;
 	msm_host->mmc->caps2 |= MMC_CAP2_STOP_REQUEST;
@@ -3392,7 +3581,7 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 
 		pr_info("%s: Qualcomm MSM SDHC-core at 0x%016llx device irq=%d\n",
 			mmc_hostname(host->mmc), (unsigned long long)core_memres->start,
-			host->irq );
+			host->irq);
 		pr_info("%s: SDHCI version: 0x%.8x flags: 0x%.8x\n",
 				mmc_hostname(host->mmc), host->version, host->flags);
 		pr_info("%s: host caps: 0x%.8x\n",
@@ -3403,16 +3592,19 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 				mmc_hostname(host->mmc), msm_host->mmc->caps,
 				msm_host->mmc->caps2);
 		pr_info("%s: 8 bit data mode %s\n", mmc_hostname(host->mmc),
-			(msm_host->mmc->caps & MMC_CAP_8_BIT_DATA ? "enabled" : "disabled"));
+			(msm_host->mmc->caps & MMC_CAP_8_BIT_DATA ?
+			 "enabled" : "disabled"));
 		pr_info("%s: 4 bit data mode %s\n", mmc_hostname(host->mmc),
-			(msm_host->mmc->caps & MMC_CAP_4_BIT_DATA ? "enabled" : "disabled"));
+			(msm_host->mmc->caps & MMC_CAP_4_BIT_DATA ?
+			 "enabled" : "disabled"));
 		pr_info("%s: polling status mode %s\n", mmc_hostname(host->mmc),
-			(msm_host->mmc->caps & MMC_CAP_NEEDS_POLL ? "enabled" : "disabled"));
+			(msm_host->mmc->caps & MMC_CAP_NEEDS_POLL ?
+			 "enabled" : "disabled"));
 		pr_info("%s: MMC clock %u -> %u Hz\n",
 		       mmc_hostname(host->mmc), sdhci_msm_get_min_clock(host),
 			sdhci_msm_get_max_clock(host));
 
-		if ( msm_host->pdata != NULL ){
+		if (msm_host->pdata != NULL) {
 			pr_info("%s: HS200 1.8V mode %s\n", mmc_hostname(host->mmc),
 				(msm_host->pdata->caps2 & MMC_CAP2_HS200_1_8V_SDR ?
 				 "enabled" : "disabled"));
@@ -3428,44 +3620,42 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 		}
 
 		curr = NULL;
-		if ( (msm_host->pdata != NULL) && (msm_host->pdata->pin_data != NULL) )
+		if ((msm_host->pdata != NULL) && (msm_host->pdata->pin_data != NULL))
 			curr = msm_host->pdata->pin_data->pad_data;
 
-		if ( (curr != NULL) && (curr->drv != NULL) ){
+		if ((curr != NULL) && (curr->drv != NULL)) {
 			for (i = 0; i < curr->drv->size; i++) {
-				pr_info( "%s: drv-on   : no=%x, val=%x\n",
+				pr_info("%s: drv-on   : no=%x, val=%x\n",
 						mmc_hostname(host->mmc),
 						curr->drv->on[i].no, curr->drv->on[i].val);
 			}
 			for (i = 0; i < curr->drv->size; i++) {
-				pr_info( "%s: drv-off  : no=%x, val=%x\n",
+				pr_info("%s: drv-off  : no=%x, val=%x\n",
 						mmc_hostname(host->mmc),
 						curr->drv->off[i].no, curr->drv->off[i].val);
 			}
-		}
-		else {
-			pr_info( "%s: <no drv data>\n", mmc_hostname(host->mmc));
+		} else {
+			pr_info("%s: <no drv data>\n", mmc_hostname(host->mmc));
 		}
 
-		if ( (curr != NULL) && (curr->pull != NULL) ){
+		if ((curr != NULL) && (curr->pull != NULL)) {
 			for (i = 0; i < curr->pull->size; i++) {
-				pr_info( "%s: pull-on  : no=%x, val=%x\n",
+				pr_info("%s: pull-on  : no=%x, val=%x\n",
 						mmc_hostname(host->mmc),
 						curr->pull->on[i].no, curr->pull->on[i].val);
 			}
 			for (i = 0; i < curr->pull->size; i++) {
-				pr_info( "%s: pull-off : no=%x, val=%x\n",
+				pr_info("%s: pull-off : no=%x, val=%x\n",
 						mmc_hostname(host->mmc),
 						curr->pull->off[i].no, curr->pull->off[i].val);
 			}
-		}
-		else {
-			pr_info( "%s: <no pull data>\n", mmc_hostname(host->mmc));
+		} else {
+			pr_info("%s: <no pull data>\n", mmc_hostname(host->mmc));
 		}
 
-		if ( (msm_host->pdata != NULL) && (msm_host->pdata->vreg_data != NULL)
-			 && (msm_host->pdata->vreg_data->vdd_data != NULL) ){
-			pr_info( "%s: %s, always_on=%d, lpm_sup=%d, vol=[%d %d]uV,"
+		if ((msm_host->pdata != NULL) && (msm_host->pdata->vreg_data != NULL)
+			 && (msm_host->pdata->vreg_data->vdd_data != NULL))
+			pr_info("%s: %s, always_on=%d, lpm_sup=%d, vol=[%d %d]uV,"
 					" curr[%d %d]uA\n",
 				mmc_hostname(host->mmc),
 				msm_host->pdata->vreg_data->vdd_data->name,
@@ -3474,15 +3664,13 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 				msm_host->pdata->vreg_data->vdd_data->low_vol_level,
 				msm_host->pdata->vreg_data->vdd_data->high_vol_level,
 				msm_host->pdata->vreg_data->vdd_data->lpm_uA,
-				msm_host->pdata->vreg_data->vdd_data->hpm_uA );
-		}
-		else {
-			pr_info( "%s: <no vdd data>\n", mmc_hostname(host->mmc));
-		}
+				msm_host->pdata->vreg_data->vdd_data->hpm_uA);
+		else
+			pr_info("%s: <no vdd data>\n", mmc_hostname(host->mmc));
 
-		if ( (msm_host->pdata != NULL) && (msm_host->pdata->vreg_data != NULL)
-			 && (msm_host->pdata->vreg_data->vdd_io_data != NULL) ){
-			pr_info( "%s: %s, always_on=%d, lpm_sup=%d, vol=[%d %d]uV,"
+		if ((msm_host->pdata != NULL) && (msm_host->pdata->vreg_data != NULL)
+			 && (msm_host->pdata->vreg_data->vdd_io_data != NULL))
+			pr_info("%s: %s, always_on=%d, lpm_sup=%d, vol=[%d %d]uV,"
 					" curr[%d %d]uA\n",
 				mmc_hostname(host->mmc),
 				msm_host->pdata->vreg_data->vdd_io_data->name,
@@ -3492,27 +3680,26 @@ static int __devinit sdhci_msm_probe(struct platform_device *pdev)
 				msm_host->pdata->vreg_data->vdd_io_data->high_vol_level,
 				msm_host->pdata->vreg_data->vdd_io_data->lpm_uA,
 				msm_host->pdata->vreg_data->vdd_io_data->hpm_uA );
-		}
-		else {
+		else
 			pr_info( "%s: <no vdd-io data>\n", mmc_hostname(host->mmc));
-		}
-		
-		if (!strncmp( mmc_hostname(host->mmc),HOST_MMC_MMC, sizeof(HOST_MMC_MMC))) {
+
+		if (!strncmp( mmc_hostname(host->mmc),HOST_MMC_MMC,
+			 sizeof(HOST_MMC_MMC))) {
 #ifdef CONFIG_DRIVESTRENGTH_EMMC_CUST_SH
-			pr_info( "%s: eMMC DS for HS400 : %d\n",
+			pr_info("%s: eMMC DS for HS400 : %d\n",
 				mmc_hostname(host->mmc),
-				CONFIG_HS400_DRIVER_TYPE_EMMC_CUST_SH );
-			pr_info( "%s: eMMC DS for HS200 : %d\n",
+				CONFIG_HS400_DRIVER_TYPE_EMMC_CUST_SH);
+			pr_info("%s: eMMC DS for HS200 : %d\n",
 				mmc_hostname(host->mmc),
-				CONFIG_HS200_DRIVER_TYPE_EMMC_CUST_SH );
-			pr_info( "%s: eMMC DS for HS : %d\n",
+				CONFIG_HS200_DRIVER_TYPE_EMMC_CUST_SH);
+			pr_info("%s: eMMC DS for HS : %d\n",
 				mmc_hostname(host->mmc),
-				CONFIG_HS_DRIVER_TYPE_EMMC_CUST_SH );
-#else  /* DONFIG_HS_DRIVER_TYPE_EMMC_CUST_SH */
-			pr_info( "%s: eMMC DS for HS/HS200/HS400 : 0(not defined)\n",
-				mmc_hostname(host->mmc) );
-#endif  /* DONFIG_HS_DRIVER_TYPE_EMMC_CUST_SH */
-		} 
+				CONFIG_HS_DRIVER_TYPE_EMMC_CUST_SH);
+#else  /* CONFIG_DRIVESTRENGTH_EMMC_CUST_SH */
+			pr_info("%s: eMMC DS for HS/HS200/HS400 : 0(not defined)\n",
+				mmc_hostname(host->mmc));
+#endif  /* CONFIG_DRIVESTRENGTH_EMMC_CUST_SH */
+		}
 	}
 #endif /* CONFIG_MMC_CUST_SH && CONFIG_ANDROID_ENGINEERING */
 	goto out;

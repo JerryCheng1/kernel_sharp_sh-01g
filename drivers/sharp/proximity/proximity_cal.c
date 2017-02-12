@@ -1320,7 +1320,7 @@ static int PROX_Probe(void)
 
 	/* proximity value near=7, far=0 */
 	input_set_abs_params(poProximityRec->input_dev, ABS_DISTANCE, 0, 7, 0, 0);
-
+	input_set_abs_params(poProximityRec->input_dev, ABS_RUDDER, 0, 0x1, 0, 0);
 	/* Set name */
 	poProximityRec->input_dev->name = "proximity";
 

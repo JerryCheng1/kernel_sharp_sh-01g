@@ -56,9 +56,9 @@
 #include "msm_serial_hs_hwreg.h"
 
 
-#ifdef CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 #include "sharp/irb_kdrv_api.h"
-#endif	/* CONFIG_SHIRDA */
+#endif	/* CONFIG_SHIRBLASTER */
 /*
  * There are 3 different kind of UART Core available on MSM.
  * High Speed UART (i.e. Legacy HSUART), GSBI based HSUART
@@ -102,9 +102,11 @@ struct msm_hsl_port {
 	struct msm_bus_scale_pdata *bus_scale_table;
 #ifdef CONFIG_SHIRDA
 	bool use_irda;
+#endif	/* CONFIG_SHIRDA */
+#ifdef CONFIG_SHIRBLASTER
 	bool use_irrc;
 	bool write_irrc;
-#endif
+#endif	/* CONFIG_SHIRBLASTER */
 };
 
 #define UARTDM_VERSION_11_13	0
@@ -526,12 +528,12 @@ static void msm_hsl_stop_tx(struct uart_port *port)
 	msm_hsl_port->imr &= ~UARTDM_ISR_TXLEV_BMSK;
 	msm_hsl_write(port, msm_hsl_port->imr,
 		regmap[msm_hsl_port->ver_id][UARTDM_IMR]);
-#ifdef CONFIG_SHIRDA	
+#ifdef CONFIG_SHIRBLASTER
 	msm_hsl_port->write_irrc = false;
-#endif
+#endif	/* CONFIG_SHIRBLASTER */
 }
 
-#ifdef CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 int msm_hsl_set_irrc(struct uart_port *port, bool v)
 {
 	int	ret = 0;
@@ -546,7 +548,7 @@ int msm_hsl_set_irrc(struct uart_port *port, bool v)
 	return ret;
 }
 static void handle_tx(struct uart_port *port);
-#endif
+#endif	/* CONFIG_SHIRBLASTER */
 
 static void msm_hsl_start_tx(struct uart_port *port)
 {
@@ -556,13 +558,13 @@ static void msm_hsl_start_tx(struct uart_port *port)
 		pr_err("%s: System is in Suspend state\n", __func__);
 		return;
 	}
-#ifdef CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 	if (msm_hsl_port->use_irrc) {
 		msm_hsl_port->write_irrc = true;
 		handle_tx(port);
 		if (msm_hsl_port->write_irrc != true) return;
 	}
-#endif
+#endif	/* CONFIG_SHIRBLASTER */
 	msm_hsl_port->imr |= UARTDM_ISR_TXLEV_BMSK;
 	msm_hsl_write(port, msm_hsl_port->imr,
 		regmap[msm_hsl_port->ver_id][UARTDM_IMR]);
@@ -664,26 +666,26 @@ static void handle_tx(struct uart_port *port)
 	int x;
 	unsigned int tf_pointer = 0;
 	unsigned int vid;
-#ifdef CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
-#endif	/* CONFIG_SHIRDA */
+#endif	/* CONFIG_SHIRBLASTER */
 
 	vid = UART_TO_MSM(port)->ver_id;
 	tx_count = uart_circ_chars_pending(xmit);
 
 	if (tx_count > (UART_XMIT_SIZE - xmit->tail))
 		tx_count = UART_XMIT_SIZE - xmit->tail;
-#ifdef CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 	if (msm_hsl_port->use_irrc) {
 		if (tx_count > port->fifosize * 4)
 			tx_count = port->fifosize * 4;
 	} else {
-#endif	/* CONFIG_SHIRDA */
+#endif	/* CONFIG_SHIRBLASTER */
 	if (tx_count >= port->fifosize)
 		tx_count = port->fifosize;
-#ifdef CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 	}
-#endif	/* CONFIG_SHIRDA */
+#endif	/* CONFIG_SHIRBLASTER */
 
 	/* Handle x_char */
 	if (port->x_char) {
@@ -875,7 +877,7 @@ static void msm_hsl_set_baud_rate(struct uart_port *port,
 	unsigned int vid;
 	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
 
-#ifdef CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 	if (msm_hsl_port->use_irda) {
 		port->uartclk = 7372800;
 		switch (baud) {
@@ -987,7 +989,7 @@ static void msm_hsl_set_baud_rate(struct uart_port *port,
 		mb();
 
 	} else {
-#endif
+#endif	/* CONFIG_SHIRBLASTER */
 	switch (baud) {
 	case 300:
 		baud_code = UARTDM_CSR_75;
@@ -1064,6 +1066,7 @@ static void msm_hsl_set_baud_rate(struct uart_port *port,
 		break;
 	}
 #ifdef CONFIG_SHIRDA
+	/* It is unnecessary fot IrBlaster */
 	if (msm_hsl_port->use_irda) {
 		rxstale = 1;
 	}
@@ -1089,9 +1092,9 @@ static void msm_hsl_set_baud_rate(struct uart_port *port,
 	else
 		port->uartclk = 7372800;
 
-#ifdef	CONFIG_SHIRDA
+#ifdef CONFIG_SHIRBLASTER
 	}
-#endif
+#endif	/* CONFIG_SHIRBLASTER */
 
 	if (clk_set_rate(msm_hsl_port->clk, port->uartclk)) {
 		pr_err("Error: setting uartclk rate %u\n", port->uartclk);
@@ -1921,8 +1924,10 @@ static int __devinit msm_serial_hsl_probe(struct platform_device *pdev)
 	} else {
 		msm_hsl_port->use_irda = false;
 	}
-	msm_hsl_port->use_irrc = false;
 #endif
+#ifdef CONFIG_SHIRBLASTER
+	msm_hsl_port->use_irrc = false;
+#endif	/* CONFIG_SHIRBLASTER */
 
 	msm_hsl_port->clk = clk_get(&pdev->dev, "core_clk");
 	if (unlikely(IS_ERR(msm_hsl_port->clk))) {

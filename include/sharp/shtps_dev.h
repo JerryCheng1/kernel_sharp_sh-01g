@@ -16,9 +16,13 @@
 #define __SHTPS_DEV_H__
 
 #if defined(CONFIG_SHTPS_SY3X00_DEV)
-	#include <sharp/shtps_dev_sy3x00.h>
-#elif defined(CONFIG_SHTPS_MXT_DEV)
-	#include <sharp/shtps_dev_mxt.h>
+	#if defined(CONFIG_SHTPS_SY3000_TM2945_001)
+		#include <sharp/shtps_dev_sy3x00_1.h>
+	#elif defined(CONFIG_SHTPS_SY3000_TM2979_001)
+		#include <sharp/shtps_dev_sy3x00_2.h>
+	#else
+		#include <sharp/shtps_dev_sy3x00_3.h>
+	#endif
 #endif
 
 #endif /* __SHTPS_DEV_H__ */

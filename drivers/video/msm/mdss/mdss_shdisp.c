@@ -281,6 +281,18 @@ void mdss_shdisp_tri_led_set_color(char red, char green, char blue)
 	shdisp_api_tri_led_set_color(&param);
 }
 
+#ifdef CONFIG_SHDISP /* CUST_ID_00042 */
+#ifdef CONFIG_USES_SHLCDC
+/* ----------------------------------------------------------------------- */
+/*                                                                         */
+/* ----------------------------------------------------------------------- */
+int mdss_shdisp_pll_ctl(int ctl)
+{
+	return shdisp_api_main_pll_ctl(ctl);
+}
+#endif /* CONFIG_USES_SHLCDC */
+#endif /* CONFIG_SHDISP */
+
 /* ----------------------------------------------------------------------- */
 /*                                                                         */ 
 /* ----------------------------------------------------------------------- */

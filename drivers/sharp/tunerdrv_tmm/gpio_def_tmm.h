@@ -8,12 +8,12 @@
 #ifndef GPIO_DEF
 	#define GPIO_DEF
 
-/* LINUX/android/kernel/arch/arm/mach-msm/board-msm8960.h */
-#include <mach/gpio.h>
 #define PM8841_GPIO_BASE		1000
 #define PM8841_GPIO_PM_TO_SYS(pm_gpio)  (pm_gpio + PM8841_GPIO_BASE)
+#if defined(CONFIG_MACH_LYNX_DL60)
 #define PM8941_GPIO_BASE		2000
 #define PM8941_GPIO_PM_TO_SYS(pm_gpio)  (pm_gpio + PM8941_GPIO_BASE)
+#endif
 
 #include "gpio_def_ext_tmm.h"
 
@@ -33,11 +33,13 @@ typedef struct GPIO_DEF {
 #define GPIO_DTVRST_PORTNO			(13)
 /* #define GPIO_DTVLNAEN_PORTNO		(xx) */
 /* #define GPIO_DTVANTSW_PORTNO		(PM8841_GPIO_PM_TO_SYS(15)) */
+#if defined(CONFIG_MACH_LYNX_DL50) || defined(CONFIG_MACH_DECKARD_AS99)
 #define GPIO_DTVMANTSL_PORTNO		(PM8841_GPIO_PM_TO_SYS(1))
 #define GPIO_DTVUANTSL_PORTNO		(PM8841_GPIO_PM_TO_SYS(2))
 #define GPIO_DTVCANTSL_PORTNO		(49)
+#endif
+#if defined(CONFIG_MACH_LYNX_DL60)
 #define GPIO_DTV_STDBY_PORTNO		(PM8941_GPIO_PM_TO_SYS(23))
-
-//#define CLOCK_CONTROL_PORTNO		(37)
+#endif
 
 #endif	//GPIO_DEF

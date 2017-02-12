@@ -74,12 +74,19 @@ static const struct mmc_fixup mmc_fixups[] = {
 	MMC_FIXUP_EXT_CSD_REV(CID_NAME_ANY, CID_MANFID_HYNIX,
 			      0x014a, add_quirk, MMC_QUIRK_BROKEN_HPI, 5),
 
+	/* Disable HPI feature for Kingstone card */
+	MMC_FIXUP_EXT_CSD_REV("MMC16G", CID_MANFID_KINGSTON, CID_OEMID_ANY,
+			add_quirk, MMC_QUIRK_BROKEN_HPI, 5),
+
 	/*
 	 * Some Hynix cards exhibit data corruption over reboots if cache is
 	 * enabled. Disable cache for all versions until a class of cards that
 	 * show this behavior is identified.
 	 */
 	MMC_FIXUP("H8G2d", CID_MANFID_HYNIX, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_CACHE_DISABLE),
+
+	MMC_FIXUP("MMC16G", CID_MANFID_KINGSTON, CID_OEMID_ANY, add_quirk_mmc,
 		  MMC_QUIRK_CACHE_DISABLE),
 
 	END_FIXUP
@@ -355,6 +362,8 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 
 	card->ext_csd.raw_card_type = ext_csd[EXT_CSD_CARD_TYPE];
 	mmc_select_card_type(card);
+
+	card->ext_csd.raw_drive_strength = ext_csd[EXT_CSD_DRIVE_STRENGTH];
 
 	card->ext_csd.raw_s_a_timeout = ext_csd[EXT_CSD_S_A_TIMEOUT];
 	card->ext_csd.raw_erase_timeout_mult =
@@ -760,9 +769,7 @@ static int mmc_select_powerclass(struct mmc_card *card,
 				EXT_CSD_PWR_CL_52_195 :
 				EXT_CSD_PWR_CL_DDR_52_195;
 		else if (host->ios.clock <= 200000000)
-			index = (bus_width <= EXT_CSD_BUS_WIDTH_8) ?
-				EXT_CSD_PWR_CL_200_195 :
-				EXT_CSD_PWR_CL_DDR_200_195;
+			index = EXT_CSD_PWR_CL_200_195;
 		break;
 	case MMC_VDD_27_28:
 	case MMC_VDD_28_29:
@@ -780,9 +787,9 @@ static int mmc_select_powerclass(struct mmc_card *card,
 				EXT_CSD_PWR_CL_52_360 :
 				EXT_CSD_PWR_CL_DDR_52_360;
 		else if (host->ios.clock <= 200000000)
-			index = (bus_width <= EXT_CSD_BUS_WIDTH_8) ?
-				EXT_CSD_PWR_CL_200_360 :
-				EXT_CSD_PWR_CL_DDR_200_360;
+			index = (bus_width == EXT_CSD_DDR_BUS_WIDTH_8) ?
+				EXT_CSD_PWR_CL_DDR_200_360 :
+				EXT_CSD_PWR_CL_200_360;
 		break;
 	default:
 		pr_warning("%s: Voltage range not supported "
@@ -1080,14 +1087,15 @@ static int mmc_select_hs200(struct mmc_card *card, u8 *ext_csd)
 	 * set the timing appropriately
 	 */
 #ifdef CONFIG_HS400_TUNING_EMMC_CUST_SH
-	if (strncmp( mmc_hostname(card->host), HOST_MMC_MMC, sizeof(HOST_MMC_MMC)) ||
+	if (strncmp( mmc_hostname(card->host), HOST_MMC_MMC,
+		 sizeof(HOST_MMC_MMC)) ||
 		(emmc_start_recovering_error == false)) {
 		if (mmc_card_hs400(card))
 			mmc_set_timing(host, MMC_TIMING_MMC_HS400);
 		else
 			mmc_set_timing(host, MMC_TIMING_MMC_HS200);
 	} else {
-		pr_info( " %s : set timing to HS200\n", __func__ );
+		pr_info(" %s : set timing to HS200\n", __func__);
 		mmc_set_timing(host, MMC_TIMING_MMC_HS200);
 	}
 #else /* CONFIG_HS400_TUNING_EMMC_CUST_SH */
@@ -1108,6 +1116,10 @@ static int mmc_select_hs200(struct mmc_card *card, u8 *ext_csd)
 	if (err) {
 		pr_warning("%s: tuning execution failed\n",
 			   mmc_hostname(host));
+#ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
+		mmc_set_timing(card->host, MMC_TIMING_LEGACY);
+		mmc_set_clock(card->host, MMC_HIGH_26_MAX_DTR);
+#endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
 		goto out;
 	}
 	mmc_card_set_hs200(card);
@@ -1326,10 +1338,7 @@ static int mmc_reboot_notify(struct notifier_block *notify_block,
 	struct mmc_card *card = container_of(
 			notify_block, struct mmc_card, reboot_notify);
 
-	if (event != SYS_RESTART)
-		card->issue_long_pon = true;
-	else
-		card->issue_long_pon = false;
+	card->pon_type = (event != SYS_RESTART) ? MMC_LONG_PON : MMC_SHRT_PON;
 
 	return NOTIFY_OK;
 }
@@ -1442,6 +1451,9 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		card->rca = 1;
 		memcpy(card->raw_cid, cid, sizeof(card->raw_cid));
 		card->reboot_notify.notifier_call = mmc_reboot_notify;
+#ifdef CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH
+		host->card = card;
+#endif /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
 	}
 
 	/*
@@ -1486,11 +1498,11 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		 */
 
 		err = mmc_get_ext_csd(card, &ext_csd);
-#ifdef CONFIG_MMC_CUST_SH
+#ifdef CONFIG_MMC_BUG_FIX_CUST_SH
 		if (err || ext_csd == NULL)
-#else	/* CONFIG_MMC_CUST_SH */
+#else /* CONFIG_MMC_BUG_FIX_CUST_SH */
 		if (err)
-#endif	/* CONFIG_MMC_CUST_SH */
+#endif /* CONFIG_MMC_BUG_FIX_CUST_SH */
 			goto free_card;
 		card->cached_ext_csd = ext_csd;
 		err = mmc_read_ext_csd(card, ext_csd);
@@ -1584,7 +1596,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	 * Activate highest bus speed mode supported by both host and card.
 	 */
 #ifdef CONFIG_HS200_TUNING_EMMC_CUST_SH
-	if (!strncmp( mmc_hostname(card->host), HOST_MMC_MMC, sizeof(HOST_MMC_MMC)))
+	if (!strncmp(mmc_hostname(card->host), HOST_MMC_MMC, sizeof(HOST_MMC_MMC)))
 		emmc_force_hs200_tuning = true;
 #endif /* CONFIG_HS200_TUNING_EMMC_CUST_SH */
 	err = mmc_select_bus_speed(card, ext_csd);
@@ -1692,14 +1704,23 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 		}
 	}
 
+#ifndef CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH
 	if (!oldcard)
 		host->card = card;
+#endif /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
 
 	return 0;
 
 free_card:
+#ifdef CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH
+	if (!oldcard) {
+		host->card = NULL;
+		mmc_remove_card(card);
+	}
+#else /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
 	if (!oldcard)
 		mmc_remove_card(card);
+#endif /* CONFIG_HS200_TUNING_RETRY_EMMC_CUST_SH */
 err:
 	return err;
 }
@@ -1733,21 +1754,78 @@ static int mmc_poweroff_notify(struct mmc_card *card, unsigned int notify_type)
 	return err;
 }
 
-int mmc_send_long_pon(struct mmc_card *card)
+int mmc_send_pon(struct mmc_card *card)
+{
+	int err = 0;
+	struct mmc_host *host = card->host;
+
+	if (!mmc_can_poweroff_notify(card))
+		goto out;
+
+	mmc_claim_host(host);
+	if (card->pon_type & MMC_LONG_PON)
+		err = mmc_poweroff_notify(host->card, EXT_CSD_POWER_OFF_LONG);
+	else if (card->pon_type & MMC_SHRT_PON)
+		err = mmc_poweroff_notify(host->card, EXT_CSD_POWER_OFF_SHORT);
+	if (err)
+		pr_warn("%s: error %d sending PON type %u",
+			mmc_hostname(host), err, card->pon_type);
+	mmc_release_host(host);
+out:
+	return err;
+}
+
+#ifdef CONFIG_PM_EMMC_CUST_SH
+int mmc_send_short_pon(struct mmc_card *card)
 {
 	int err = 0;
 	struct mmc_host *host = card->host;
 
 	mmc_claim_host(host);
-	if (card->issue_long_pon && mmc_can_poweroff_notify(card)) {
-		err = mmc_poweroff_notify(host->card, EXT_CSD_POWER_OFF_LONG);
-		if (err)
-			pr_warning("%s: error %d sending Long PON",
+	if (mmc_can_poweroff_notify(card)) {
+		err = mmc_poweroff_notify(host->card, EXT_CSD_POWER_OFF_SHORT);
+		if (err) {
+			pr_err("%s: error %d sending Short PON",
 					mmc_hostname(host), err);
+			err = mmc_try_flush_cache(host, MMC_BLK_SWITCH);
+			if (err) {
+				pr_err("%s: error %d recovery Short PON error",
+						mmc_hostname(host), err);
+				BUG_ON(1);
+			}
+		}
 	}
 	mmc_release_host(host);
 	return err;
 }
+
+int mmc_send_on_pon(struct mmc_card *card)
+{
+	int err = 0;
+	struct mmc_host *host = card->host;
+
+	mmc_claim_host(host);
+	if (card && mmc_card_mmc(card) &&
+		(host->caps2 & MMC_CAP2_POWEROFF_NOTIFY) &&
+		(card->ext_csd.rev >= 6)) {
+		err = mmc_poweroff_notify(host->card, EXT_CSD_POWER_ON);
+		if (err) {
+			pr_err("%s: error %d sending On PON",
+				mmc_hostname(host), err);
+			err = mmc_try_flush_cache(host, MMC_BLK_SWITCH);
+			if (err) {
+				pr_err("%s: error %d recovery On PON error",
+						mmc_hostname(host), err);
+				BUG_ON(1);
+			}
+		} else {
+			card->ext_csd.power_off_notification = EXT_CSD_POWER_ON;
+		}
+	}
+	mmc_release_host(host);
+	return err;
+}
+#endif /* CONFIG_PM_EMMC_CUST_SH */
 
 /*
  * Host is being removed. Free up the current card.

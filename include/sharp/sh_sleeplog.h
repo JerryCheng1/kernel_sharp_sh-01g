@@ -26,6 +26,7 @@ void sh_count_gic_counter(int irq);
 void sh_count_irq_counter(int irq);
 void sh_count_irq_if_pmic_wakeup(int irq);
 void sh_set_screen_state(struct timespec ts, suspend_state_t state);
+void sh_set_screen_state_without_time(int screen_state);
 
 char *sh_write_buffer_wakeup_sources(char *buffer);
 char *sh_write_buffer_wakeup_sources_internal(

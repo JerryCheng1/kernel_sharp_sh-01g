@@ -117,7 +117,9 @@ static void shvibrator_set(int on)
 	unsigned short boot_mode;
 	unsigned char param[9];
 	bool smemzero;
+#ifdef CONFIG_MACH_LYNX_DL60
 	sharp_smem_common_type *vib_sh_smem_common_type = NULL;
+#endif
 
 	mutex_lock(&sh_vibrator_pmic_mutex);
 
@@ -137,9 +139,11 @@ static void shvibrator_set(int on)
 			/*  I2C control  */
 			if( (boot_mode == SH_BOOT_D) || (boot_mode == SH_BOOT_F_F) ) {
 
+#ifdef CONFIG_MACH_LYNX_DL60
 				/*  Read vib param from SMEM  */
 				vib_sh_smem_common_type = sh_smem_get_common_address();
 				memcpy(param, vib_sh_smem_common_type->shdiag_vib_param, sizeof(param));
+#endif
 
 				/* judge SMEM all zero */
 				smemzero = true;

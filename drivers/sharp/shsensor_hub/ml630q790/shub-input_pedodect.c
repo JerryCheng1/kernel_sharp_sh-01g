@@ -222,11 +222,12 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 if(power_state != 0){
                     shub_logging_flush();
                     setMaxBatchReportLatency(SHUB_ACTIVE_PEDODEC, batch_param.m_Latency);
-                    shub_idev->sync = 0;
-// SHMDS_HUB_0701_05 mod S
+                    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
+// SHMDS_HUB_0309_01 mod S
 //                  input_event(shub_idev, EV_SYN, SYN_REPORT, 2);
+                    shub_input_first_report(shub_idev, 1); /* SHMDS_HUB_0308_01 add */
                     input_event(shub_idev, EV_SYN, SYN_REPORT, (SHUB_INPUT_META_DATA | SHUB_INPUT_PEDODET));
-// SHMDS_HUB_0701_05 mod E
+// SHMDS_HUB_0309_01 mod E
 
                 }else{
                     mutex_unlock(&shub_lock);
@@ -266,16 +267,18 @@ void shub_input_report_stepdetect(int32_t *data)
 // SHMDS_HUB_0701_01 add E
 
 #if 1  // SHMDS_HUB_0601_01 mod S
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_Z, data[INDEX_STPS]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_Z, data[INDEX_STPS]);
     input_report_abs(shub_idev, ABS_HAT2Y, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_HAT2X, data[INDEX_TMNS]);
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev, EV_SYN, SYN_REPORT, SHUB_INPUT_PEDODET);
 #else
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_X, data[INDEX_STPS]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_X, data[INDEX_STPS]);
     input_report_abs(shub_idev, ABS_MISC, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_VOLUME, data[INDEX_TMNS]);
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
     input_event(shub_idev, EV_SYN, SYN_REPORT, 1);
 #endif // SHMDS_HUB_0601_01 mod E
 }
@@ -286,8 +289,20 @@ static void shub_set_abs_params(void)
     input_set_abs_params(shub_idev, ABS_MISC, 0, 0xFFFFFFFF, 0, 0);
     input_set_abs_params(shub_idev, ABS_VOLUME, 0, 0xFFFFFFFF, 0, 0);
     input_set_abs_params(shub_idev, ABS_X, PEDOM_MIN, PEDOM_MAX, 0, 0);
+    shub_set_param_first(shub_idev); /* SHMDS_HUB_0308_01 add */
 }
 #endif // SHMDS_HUB_0601_01 del E
+
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_input_pedodect(struct seq_file *s)
+{
+    seq_printf(s, "[pedodect  ]");
+    seq_printf(s, "power_state=%d, ",power_state);
+    seq_printf(s, "batch_param.m_Flasg=%d, ",batch_param.m_Flasg);
+    seq_printf(s, "batch_param.m_PeriodNs=%lld, ",batch_param.m_PeriodNs);
+    seq_printf(s, "batch_param.m_Latency=%lld\n",batch_param.m_Latency);
+}
+// SHMDS_HUB_0701_05 add E
 
 // SHMDS_HUB_1101_01 mod S
 static struct file_operations shub_fops = {

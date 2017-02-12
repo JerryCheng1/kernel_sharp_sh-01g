@@ -309,6 +309,7 @@ struct _mmc_csd {
 #define EXT_CSD_REV			192	/* RO */
 #define EXT_CSD_STRUCTURE		194	/* RO */
 #define EXT_CSD_CARD_TYPE		196	/* RO */
+#define EXT_CSD_DRIVE_STRENGTH		197	/* RO */
 #define EXT_CSD_OUT_OF_INTERRUPT_TIME	198	/* RO */
 #define EXT_CSD_PART_SWITCH_TIME        199     /* RO */
 #define EXT_CSD_PWR_CL_52_195		200	/* RO */
@@ -335,8 +336,7 @@ struct _mmc_csd {
 #define EXT_CSD_POWER_OFF_LONG_TIME	247	/* RO */
 #define EXT_CSD_GENERIC_CMD6_TIME	248	/* RO */
 #define EXT_CSD_CACHE_SIZE		249	/* RO, 4 bytes */
-#define EXT_CSD_PWR_CL_DDR_200_195	253	/* RO */
-#define EXT_CSD_PWR_CL_DDR_200_360	254	/* RO */
+#define EXT_CSD_PWR_CL_DDR_200_360	253	/* RO */
 #ifdef CONFIG_FFU_EMMC_CUST_SH
 #define EXT_CSD_FIRMWARE_VERSION	254	/* RO */
 #define EXT_CSD_NUM_OF_FW_SECTORS_PRG	302	/* RO */

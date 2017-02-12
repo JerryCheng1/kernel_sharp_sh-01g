@@ -45,11 +45,13 @@ module_param(shub_mcu_ped_enable_dbg, int, 0600);
 static int shub_mcu_ped_enable = 0;
 /* SHMDS_HUB_0206_06 add E */
 
+static int shub_mcu_open_info = 0; // SHMDS_HUB_0304_01 add
+
 // SHMDS_HUB_0701_01 add S
 #ifdef CONFIG_ANDROID_ENGINEERING
 static void shub_get_param_type_log( int32_t type, int32_t *dt, uint8_t *logbuff )
 {
-    memset(logbuff, 0x00, sizeof(logbuff));
+//  memset(logbuff, 0x00, sizeof(logbuff));
     switch(type) {
     case 1: // APP_PEDOMETER
         sprintf(logbuff, "type=PED, data=%x,%x,%x,%x,%x,%x,%x,%x, %x,%x,%x,%x", *dt, *(dt+1), *(dt+2), *(dt+3), *(dt+4), *(dt+5), *(dt+6), *(dt+7), *(dt+8), *(dt+9), *(dt+10), *(dt+11));
@@ -79,7 +81,7 @@ static void shub_get_param_type_log( int32_t type, int32_t *dt, uint8_t *logbuff
         sprintf(logbuff, "type=LP, data=%x,%x,%x,%x,%x,%x", *dt, *(dt+1), *(dt+2), *(dt+3), *(dt+4), *(dt+5));
         break;
     case 14: // APP_VEICHLE_DETECTION2
-        sprintf(logbuff, "type=VEI2, data=%x,%x,%x", *dt, *(dt+1), *(dt+2));
+        sprintf(logbuff, "type=VEI2, data=%x,%x,%x,%x,%x,%x,%x,%x,%x", *dt, *(dt+1), *(dt+2), *(dt+3), *(dt+4), *(dt+5), *(dt+6), *(dt+7), *(dt+8));    // SHMDS_HUB_0209_02 mod
         break;
     default:
         sprintf(logbuff, "type=%d, data=...", type);
@@ -109,7 +111,8 @@ static struct platform_device *pdev;
 static struct input_dev *shub_idev;
 #endif // SHMDS_HUB_0601_02 del E
 
-static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+// SHMDS_HUB_0305_01 mod (argument add. int env)
+static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg, int env)
 {
     void __user *argp = (void __user *)arg;
     int32_t ret = -1;
@@ -162,17 +165,30 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 uint8_t *fw_data_page1 = NULL;
                 uint8_t *fw_data_page2 = NULL;
                 uint32_t allocate_size;
+                uint8_t *data_addr;             // SHMDS_HUB_0305_01 add
                 ret = copy_from_user(&ioc,argp,sizeof(ioc));
                 if (ret) {
                     printk( "error(copy_from_user) : shub_ioctl(cmd = SHUBIO_MCU_FW_UPDATE)\n" );
                     return -EFAULT;
                 }
-
-                if((ioc.m_cData == NULL) || (ioc.m_nLen == 0)){
-                    printk( "error(Input param) : shub_ioctl(cmd = SHUBIO_MCU_FW_UPDATE)\n" );
-                    return -EFAULT;
+// SHMDS_HUB_0305_01 mod S
+                DBG_MCU_IO( "ioctl(cmd = FW_Update) : env=%d\n", env);
+                if(env == 32) {
+                    unsigned long data_ulong;
+                    data_ulong = (unsigned long)ioc.u.m_cDataAddr;
+                    data_ulong &= 0xFFFFFFFF;
+                    data_addr = (uint8_t *)data_ulong;
+                    if((data_addr == NULL) || (ioc.m_nLen == 0)){
+                        printk( "error(Input param) : shub_ioctl(cmd = SHUBIO_MCU_FW_UPDATE) env=32\n" );
+                        return -EFAULT;
+                    }
+                } else {
+                    if((ioc.u.m_cData == NULL) || (ioc.m_nLen == 0)){
+                        printk( "error(Input param) : shub_ioctl(cmd = SHUBIO_MCU_FW_UPDATE) env=64\n" );
+                        return -EFAULT;
+                    }
                 }
-
+// SHMDS_HUB_0305_01 mod E
                 DBG_MCU_IO("ioctl(cmd = FW_Update) : size=%d\n", ioc.m_nLen); // SHMDS_HUB_0701_01 add
                 if(ioc.m_nLen > (64*1024)){
                     allocate_size = (64*1024);
@@ -185,8 +201,13 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                     printk( "error(kmalloc) : shub_ioctl(cmd = SHUBIO_MCU_FW_UPDATE)\n" );
                     return -ENOMEM;
                 }
-
-                ret = copy_from_user( fw_data_page1, &ioc.m_cData[0], allocate_size );
+// SHMDS_HUB_0305_01 mod S
+                if(env == 32) {
+                    ret = copy_from_user( fw_data_page1, &data_addr[0], allocate_size );
+                } else {
+                    ret = copy_from_user( fw_data_page1, &ioc.u.m_cData[0], allocate_size );
+                }
+// SHMDS_HUB_0305_01 mod E
                 if( ret != 0 )
                 {
                     printk( "error(copy_from_user(data)) : shub_ioctl(cmd = SHUBIO_MCU_FW_UPDATE)\n" );
@@ -203,8 +224,13 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                         kfree( fw_data_page1 );
                         return -ENOMEM;
                     }
-
-                    ret = copy_from_user( fw_data_page2, &ioc.m_cData[64*1024], allocate_size );
+// SHMDS_HUB_0305_01 mod S
+                    if(env == 32) {
+                        ret = copy_from_user( fw_data_page2, &data_addr[64*1024], allocate_size );
+                    } else {
+                        ret = copy_from_user( fw_data_page2, &ioc.u.m_cData[64*1024], allocate_size );
+                    }
+// SHMDS_HUB_0305_01 mod E
                     if( ret != 0 )
                     {
                         printk( "error(copy_from_user(data)) : shub_ioctl(cmd = SHUBIO_MCU_FW_UPDATE)\n" );
@@ -264,6 +290,7 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                     return -EFAULT;
                 }
 #ifdef CONFIG_ANDROID_ENGINEERING
+                memset(logbuff, 0x00, sizeof(logbuff));
                 shub_get_param_type_log(param.m_iType, param.m_iParam, logbuff);	// SHMDS_HUB_0701_01 add
                 DBG_MCU_IO("ioctl(cmd = Set_Param) : %s\n", logbuff); 				// SHMDS_HUB_0701_01 add
 #endif
@@ -299,6 +326,7 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
                 mutex_lock(&shub_lock);
                 ret = shub_get_param(param.m_iType, param.m_iParam);
+                shub_get_param_check_exif(param.m_iType, param.m_iParam);           // SHMDS_HUB_0206_07 add
                 mutex_unlock(&shub_lock);
                 if(ret) {
                     printk( "error(shub_get_param) : shub_ioctl(cmd = SHUBIO_MCU_GET_PARAM)\n" );
@@ -306,6 +334,7 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 }
 
 #ifdef CONFIG_ANDROID_ENGINEERING
+                memset(logbuff, 0x00, sizeof(logbuff));
                 shub_get_param_type_log(param.m_iType, param.m_iParam, logbuff);	// SHMDS_HUB_0701_01 add
                 DBG_MCU_IO("ioctl(cmd = Get_Param) : %s\n", logbuff); 				// SHMDS_HUB_0701_01 add
 #endif
@@ -523,6 +552,35 @@ static long shub_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 }
             }
             break;
+// SHMDS_HUB_0304_01 add S
+        case SHUBIO_MCU_SET_OPENINFO : 
+            {
+                int open_info;
+                
+                ret = copy_from_user(&open_info, argp, sizeof(open_info));
+                if (ret) {
+                    printk( "error(copy_from_user) : shub_ioctl(cmd = SHUBIO_MCU_SET_OPENINFO)\n" );
+                    return -EFAULT;
+                }
+                
+                DBG_MCU_IO("ioctl(cmd = Set_Open_Info) : info=%d -> %d\n", shub_mcu_open_info, open_info);
+                shub_mcu_open_info = open_info;
+            }
+            break;
+        case SHUBIO_MCU_GET_OPENINFO : 
+            {
+                int open_info;
+                
+                open_info = shub_mcu_open_info;
+                DBG_MCU_IO("ioctl(cmd = Get_Open_Info) : info=%d\n", open_info);
+                ret = copy_to_user(argp, &open_info, sizeof(open_info));
+                if (ret) {
+                    printk( "error(copy_from_user) : shub_ioctl(cmd = SHUBIO_MCU_GET_OPENINFO)\n" );
+                    return -EFAULT;
+                }
+            }
+            break;
+// SHMDS_HUB_0304_01 add E
         default:
             return -ENOTTY;
     }
@@ -535,19 +593,43 @@ static long shub_ioctl_wrapper(struct file *filp, unsigned int cmd, unsigned lon
     long ret = 0;
 
     shub_qos_start();
-    ret = shub_ioctl(filp, cmd , arg);
+    ret = shub_ioctl(filp, cmd , arg, 64);                          // SHMDS_HUB_0305_01 mod
     shub_qos_end();
 
     return ret;
 }
 // SHMDS_HUB_1101_01 add E
+// SHMDS_HUB_0305_01 add S
+#ifdef CONFIG_COMPAT
+static long shub_ioctl_wrapper32(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    long ret = 0;
+
+    shub_qos_start();
+    ret = shub_ioctl(filp, cmd , arg, 32);
+    shub_qos_end();
+
+    return ret;
+}
+#endif
+// SHMDS_HUB_0305_01 add E
+
+// SHMDS_HUB_0701_05 add S
+void shub_sensor_rep_input_mcu(struct seq_file *s)
+{
+    seq_printf(s, "[mcu       ]shub_mcu_open_info=%d\n", shub_mcu_open_info);
+}
+// SHMDS_HUB_0701_05 add E
 
 // SHMDS_HUB_1101_01 mod S
 static struct file_operations shub_fops = {
     .owner   = THIS_MODULE,
     .unlocked_ioctl = shub_ioctl_wrapper,
 #ifdef CONFIG_COMPAT
-    .compat_ioctl   = shub_ioctl_wrapper,
+// SHMDS_HUB_0305_01 mod S
+//    .compat_ioctl   = shub_ioctl_wrapper,
+    .compat_ioctl   = shub_ioctl_wrapper32,
+// SHMDS_HUB_0305_01 mod E
 #endif
 };
 // SHMDS_HUB_1101_01 mod E

@@ -35,6 +35,7 @@
 #include <linux/kernel.h>
 #include <linux/gpio.h>
 #include <linux/input.h>
+#include "wcdcal-hwdep.h"
 #include "wcd9320.h"
 #include "wcd9306.h"
 #include "wcd9xxx-mbhc.h"
@@ -42,30 +43,16 @@
 #include "wcd9xxx-common.h"
 
 #if defined( CONFIG_SH_AUDIO_DRIVER )
-#if defined( CONFIG_MACH_LYNX_DL63 )
+#if defined( CONFIG_MACH_LYNX_DL60 ) || defined( CONFIG_MACH_LYNX_DL63 )
 #define CONFIG_SMARTPHONE_PIERCE 1
-#define CONFIG_SMARTPHONE_PIERCE_DL63 1
-#elif defined( CONFIG_MACH_LYNX_DL60 )
-#define CONFIG_SMARTPHONE_PIERCE 1
-#define CONFIG_SMARTPHONE_PIERCE_DL60 1
 #endif
-#endif /* CONFIG_SH_AUDIO_DRIVER */
+#endif
 
 #if defined( CONFIG_SMARTPHONE_PIERCE )
 #include <sharp/shdisp_kerl.h>
 
 #define WCD9XXX_CS_MEAS_PIERCE_RANGE_LOW_MV (150)
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
 #define WCD9XXX_CS_MEAS_PIERCE_RANGE_HIGH_MV (220)
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-#define WCD9XXX_CS_MEAS_PIERCE_RANGE_HIGH_MV (265)
-#define WCD9XXX_CS_MEAS_PIERCE_INVALID_LOW_IMPEDANCE (4500)
-#define WCD9XXX_CS_MEAS_PIERCE_INVALID_HIGH_IMPEDANCE (1000*1000)
-#define WCD9XXX_CS_MEAS_PIERCE_DETECT_COUNTER (2)
-#define WCD9XXX_CS_MEAS_PIERCE_DETECT_WAIT (20)
-#define WCD9XXX_CS_MEAS_PIERCE_DETECT_IMPEDANCE_MV (350)
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 
 static bool insert_smartphone_pierce = false;
 static bool already_called_insert_sp_pierce = false;
@@ -143,7 +130,7 @@ static void report_remove_smartphone_pierce( struct wcd9xxx_mbhc *mbhc )
 #define OCP_ATTEMPT 1
 
 #define FW_READ_ATTEMPTS 15
-#define FW_READ_TIMEOUT 2000000
+#define FW_READ_TIMEOUT 4000000
 
 #define BUTTON_POLLING_SUPPORTED true
 
@@ -259,9 +246,13 @@ static void wcd9xxx_get_z(struct wcd9xxx_mbhc *mbhc, s16 *dce_z, s16 *sta_z,
 
 static void wcd9xxx_mbhc_calc_thres(struct wcd9xxx_mbhc *mbhc);
 
+static u16 wcd9xxx_codec_v_sta_dce(struct wcd9xxx_mbhc *mbhc,
+				   enum meas_type dce, s16 vin_mv,
+				   bool cs_enable);
+
 static bool wcd9xxx_mbhc_polling(struct wcd9xxx_mbhc *mbhc)
 {
-	return mbhc->polling_active;
+	return snd_soc_read(mbhc->codec, WCD9XXX_A_CDC_MBHC_EN_CTL) & 0x1;
 }
 
 static void wcd9xxx_turn_onoff_override(struct wcd9xxx_mbhc *mbhc, bool on)
@@ -615,13 +606,13 @@ static void wcd9xxx_codec_switch_cfilt_mode(struct wcd9xxx_mbhc *mbhc,
 
 	if (cfilt_mode.cur_mode_val
 			!= cfilt_mode.reg_mode_val) {
-		if (mbhc->polling_active)
+		if (mbhc->polling_active && wcd9xxx_mbhc_polling(mbhc))
 			wcd9xxx_pause_hs_polling(mbhc);
 		snd_soc_update_bits(codec,
 				    mbhc->mbhc_bias_regs.cfilt_ctl,
 					cfilt_mode.reg_mask,
 					cfilt_mode.reg_mode_val);
-		if (mbhc->polling_active)
+		if (mbhc->polling_active && wcd9xxx_mbhc_polling(mbhc))
 			wcd9xxx_start_hs_polling(mbhc);
 		pr_debug("%s: CFILT mode change (%x to %x)\n", __func__,
 			cfilt_mode.cur_mode_val,
@@ -928,9 +919,9 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 
 		if (mbhc->micbias_enable && mbhc->micbias_enable_cb) {
 			pr_debug("%s: Disabling micbias\n", __func__);
+			mbhc->micbias_enable = false;
 			mbhc->micbias_enable_cb(mbhc->codec, false,
 						mbhc->mbhc_cfg->micbias);
-			mbhc->micbias_enable = false;
 		}
 		mbhc->zl = mbhc->zr = 0;
 		pr_debug("%s: Reporting removal %d(%x)\n", __func__,
@@ -948,11 +939,6 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 		 * Headphone to headset shouldn't report headphone
 		 * removal.
 		 */
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-		if( jack_type != 0 ){
-			report_remove_smartphone_pierce( mbhc );
-		}
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 #ifdef CONFIG_SH_AUDIO_DRIVER /*09-051*//*09-079*/
 		if (((jack_type == SND_JACK_HEADSET) || (jack_type == SND_JACK_LINEOUT) || (jack_type == SND_JACK_UNSUPPORTED)) &&
 		    (mbhc->hph_status && mbhc->hph_status != jack_type)) {
@@ -965,9 +951,9 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 			if (mbhc->micbias_enable && mbhc->micbias_enable_cb &&
 			    mbhc->hph_status == SND_JACK_HEADSET) {
 				pr_debug("%s: Disabling micbias\n", __func__);
+				mbhc->micbias_enable = false;
 				mbhc->micbias_enable_cb(mbhc->codec, false,
 						mbhc->mbhc_cfg->micbias);
-				mbhc->micbias_enable = false;
 			}
 
 			pr_debug("%s: Reporting removal (%x)\n",
@@ -981,16 +967,10 @@ static void wcd9xxx_report_plug(struct wcd9xxx_mbhc *mbhc, int insertion,
 #ifdef CONFIG_SH_AUDIO_DRIVER /*09-051*/
 			msleep(100);
 #endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-051*/
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
 			mbhc->hph_status &= ~(SND_JACK_HEADSET |
 						SND_JACK_LINEOUT |
 						SND_JACK_ANC_HEADPHONE |
 						SND_JACK_UNSUPPORTED);
-#else
-			mbhc->hph_status &= ~(SND_JACK_HEADSET |
-						SND_JACK_LINEOUT |
-						SND_JACK_ANC_HEADPHONE);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 		}
 
 		/* Report insertion */
@@ -1265,10 +1245,6 @@ static short wcd9xxx_mbhc_setup_hs_polling(struct wcd9xxx_mbhc *mbhc,
 	struct snd_soc_codec *codec = mbhc->codec;
 	short bias_value;
 	u8 cfilt_mode;
-	s16 reg;
-	int change;
-	struct wcd9xxx_mbhc_btn_detect_cfg *btn_det;
-	s16 sta_z = 0, dce_z = 0;
 
 	WCD9XXX_BCL_ASSERT_LOCKED(mbhc->resmgr);
 
@@ -1278,7 +1254,6 @@ static short wcd9xxx_mbhc_setup_hs_polling(struct wcd9xxx_mbhc *mbhc,
 		return -ENODEV;
 	}
 
-	btn_det = WCD9XXX_MBHC_CAL_BTN_DET_PTR(mbhc->mbhc_cfg->calibration);
 	/* Enable external voltage source to micbias if present */
 	if (mbhc->mbhc_cb && mbhc->mbhc_cb->enable_mb_source)
 		mbhc->mbhc_cb->enable_mb_source(codec, true, true);
@@ -1338,6 +1313,21 @@ static short wcd9xxx_mbhc_setup_hs_polling(struct wcd9xxx_mbhc *mbhc,
 	snd_soc_write(codec, mbhc_micb_regs->cfilt_ctl, cfilt_mode);
 	snd_soc_update_bits(codec, WCD9XXX_A_MBHC_HPH, 0x13, 0x00);
 
+	return bias_value;
+}
+
+static void wcd9xxx_recalibrate(struct wcd9xxx_mbhc *mbhc,
+				struct mbhc_micbias_regs *mbhc_micb_regs,
+				bool is_cs_enable)
+{
+	struct snd_soc_codec *codec = mbhc->codec;
+	s16 reg;
+	int change;
+	struct wcd9xxx_mbhc_btn_detect_cfg *btn_det;
+	s16 sta_z = 0, dce_z = 0;
+
+	btn_det = WCD9XXX_MBHC_CAL_BTN_DET_PTR(mbhc->mbhc_cfg->calibration);
+
 	if (mbhc->mbhc_cfg->do_recalibration) {
 		/* recalibrate dce_z and sta_z */
 		reg = snd_soc_read(codec, WCD9XXX_A_CDC_MBHC_B1_CTL);
@@ -1372,17 +1362,24 @@ static short wcd9xxx_mbhc_setup_hs_polling(struct wcd9xxx_mbhc *mbhc,
 			snd_soc_write(mbhc->codec, WCD9XXX_A_CDC_MBHC_B1_CTL,
 				      reg);
 			if (dce_z) {
-				pr_debug("%s: dce_nsc_cs_z 0x%x -> 0x%x\n",
-					 __func__, mbhc->mbhc_data.dce_nsc_cs_z,
-					 dce_z & 0xffff);
 				mbhc->mbhc_data.dce_nsc_cs_z = dce_z;
+				/* update v_cs_ins_h with new dce_nsc_cs_z */
+				mbhc->mbhc_data.v_cs_ins_h =
+						wcd9xxx_codec_v_sta_dce(
+							mbhc, DCE,
+							WCD9XXX_V_CS_HS_MAX,
+							is_cs_enable);
+				pr_debug("%s: dce_nsc_cs_z 0x%x -> 0x%x, v_cs_ins_h 0x%x\n",
+					  __func__,
+					  mbhc->mbhc_data.dce_nsc_cs_z,
+					  dce_z & 0xffff,
+					  mbhc->mbhc_data.v_cs_ins_h);
 			} else {
 				pr_debug("%s: failed get new dce_nsc_cs_z\n",
 					 __func__);
 			}
 		}
 	}
-	return bias_value;
 }
 
 static void wcd9xxx_shutdown_hs_removal_detect(struct wcd9xxx_mbhc *mbhc)
@@ -1555,6 +1552,9 @@ wcd9xxx_cs_find_plug_type(struct wcd9xxx_mbhc *mbhc,
             d->_vdces <= WCD9XXX_CS_MEAS_PIERCE_RANGE_HIGH_MV ){
             ++smartphone_pierce_count;
         }
+        if( d->mic_bias ){
+            ++smartphone_pierce_count;
+        }
 #endif /* CONFIG_SMARTPHONE_PIERCE */
 #if !defined( CONFIG_SH_AUDIO_DRIVER ) /* invalid range disable */
 		if ((!d->mic_bias &&
@@ -1664,36 +1664,10 @@ wcd9xxx_cs_find_plug_type(struct wcd9xxx_mbhc *mbhc,
         smartphone_pierce_count == sz ){
         insert_smartphone_pierce = true;
         type = PLUG_TYPE_INVALID;
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-    }else if( type == PLUG_TYPE_HEADSET &&
-              smartphone_pierce_count != 0 ){
-        pr_debug( "%s: Invalid, could not decide headset...\n", __func__ );
-        insert_smartphone_pierce = false;
-        type = PLUG_TYPE_INVALID;
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
     }else{
         insert_smartphone_pierce = false;
     }
 #endif /* CONFIG_SMARTPHONE_PIERCE */
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-	if( type == PLUG_TYPE_HEADSET &&
-		dt->_vdces > WCD9XXX_CS_MEAS_PIERCE_DETECT_IMPEDANCE_MV ){
-		for( i = 0; i < WCD9XXX_CS_MEAS_PIERCE_DETECT_COUNTER; ++i ){
-			if( i != 0 ){
-				msleep( WCD9XXX_CS_MEAS_PIERCE_DETECT_WAIT );
-			}
-			wcd9xxx_detect_impedance( mbhc, &mbhc->zl, &mbhc->zr );
-			if( !((WCD9XXX_CS_MEAS_PIERCE_INVALID_LOW_IMPEDANCE <= mbhc->zr &&
-				   mbhc->zr < WCD9XXX_CS_MEAS_PIERCE_INVALID_HIGH_IMPEDANCE) ||
-				  (WCD9XXX_CS_MEAS_PIERCE_INVALID_LOW_IMPEDANCE <= mbhc->zl &&
-				   mbhc->zl < WCD9XXX_CS_MEAS_PIERCE_INVALID_HIGH_IMPEDANCE)) ){
-				pr_debug( "%s: Invalid, detect high impedance\n", __func__ );
-				type = PLUG_TYPE_INVALID;
-				break;
-			}
-		}
-	}
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 
 exit:
 	pr_debug("%s: Plug type %d detected\n", __func__, type);
@@ -1784,7 +1758,7 @@ wcd9xxx_find_plug_type(struct wcd9xxx_mbhc *mbhc,
 			continue;
 		}
 
-		if ((i > 0) && (d->_type != dprev->_type)) {
+		if ((i > 0) && (dprev != NULL) && (d->_type != dprev->_type)) {
 			pr_debug("%s: Invalid, inconsistent types\n", __func__);
 			type = PLUG_TYPE_INVALID;
 			goto exit;
@@ -1824,9 +1798,9 @@ wcd9xxx_find_plug_type(struct wcd9xxx_mbhc *mbhc,
 		}
 	}
 
-	if (type == PLUG_TYPE_HEADSET && dvddio) {
-		if ((dvddio->_vdces > hs_max) ||
-		    (dvddio->_vdces > minv + WCD9XXX_THRESHOLD_MIC_THRESHOLD)) {
+	if (type == PLUG_TYPE_HEADSET) {
+		if (dvddio && ((dvddio->_vdces > hs_max) ||
+		   (dvddio->_vdces > minv + WCD9XXX_THRESHOLD_MIC_THRESHOLD))) {
 			pr_debug("%s: Headset with threshold on MIC detected\n",
 				 __func__);
 			if (mbhc->mbhc_cfg->micbias_enable_flags &
@@ -1991,6 +1965,9 @@ wcd9xxx_codec_cs_get_plug_type(struct wcd9xxx_mbhc *mbhc, bool highhph)
 			wcd9xxx_codec_hphr_gnd_switch(codec, false);
 	}
 
+	/* recalibrate DCE/STA GND voltages */
+	wcd9xxx_recalibrate(mbhc, &mbhc->mbhc_bias_regs, true);
+
 	type = wcd9xxx_cs_find_plug_type(mbhc, rt, ARRAY_SIZE(rt), highhph,
 					 mbhc->event_state);
 
@@ -2071,6 +2048,8 @@ wcd9xxx_codec_get_plug_type(struct wcd9xxx_mbhc *mbhc, bool highhph)
 		if (rt[i].swap_gnd)
 			wcd9xxx_codec_hphr_gnd_switch(codec, false);
 	}
+	/* recalibrate DCE/STA GND voltages */
+	wcd9xxx_recalibrate(mbhc, &mbhc->mbhc_bias_regs, false);
 
 	if (vddioon)
 		__wcd9xxx_switch_micbias(mbhc, 1, false, false);
@@ -2499,7 +2478,8 @@ static void wcd9xxx_find_plug_and_report(struct wcd9xxx_mbhc *mbhc,
 		 * source to VDDIO
 		 */
 		if (mbhc->event_state &
-		(1 << MBHC_EVENT_PA_HPHL | 1 << MBHC_EVENT_PA_HPHR))
+		(1 << MBHC_EVENT_PA_HPHL | 1 << MBHC_EVENT_PA_HPHR |
+		1 << MBHC_EVENT_PRE_TX_1_3_ON))
 			__wcd9xxx_switch_micbias(mbhc, 1, false,
 						 false);
 		wcd9xxx_start_hs_polling(mbhc);
@@ -2588,7 +2568,7 @@ static void wcd9xxx_mbhc_decide_swch_plug(struct wcd9xxx_mbhc *mbhc)
 		wcd9xxx_schedule_hs_detect_plug(mbhc,
 						&mbhc->correct_plug_swch);
 	} else if (plug_type == PLUG_TYPE_HIGH_HPH) {
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
+#if defined( CONFIG_SMARTPHONE_PIERCE )
         report_remove_smartphone_pierce( mbhc );
 #endif /* CONFIG_SMARTPHONE_PIERCE */
 		wcd9xxx_cleanup_hs_polling(mbhc);
@@ -2651,11 +2631,6 @@ static void wcd9xxx_hs_insert_irq_swch(struct wcd9xxx_mbhc *mbhc,
 						      &mbhc->correct_plug_swch);
 			wcd9xxx_mbhc_decide_swch_plug(mbhc);
 		}
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-		else{
-			report_remove_smartphone_pierce( mbhc );
-		}
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 	} else {
 		pr_err("%s: Switch IRQ used, invalid MBHC Removal\n", __func__);
 	}
@@ -2951,9 +2926,6 @@ static irqreturn_t wcd9xxx_hs_remove_irq(int irq, void *data)
 		wcd9xxx_resmgr_cond_update_cond(mbhc->resmgr,
 						WCD9XXX_COND_HPH, false);
 	}
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-	report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
 
 	if (mbhc->mbhc_cfg->detect_extn_cable &&
 	    !wcd9xxx_swch_level_remove(mbhc))
@@ -3055,35 +3027,39 @@ static void wcd9xxx_mbhc_insert_work(struct work_struct *work)
 	wcd9xxx_unlock_sleep(core_res);
 }
 
-static bool wcd9xxx_mbhc_fw_validate(const struct firmware *fw)
+static bool wcd9xxx_mbhc_fw_validate(const void *data, size_t size)
 {
 	u32 cfg_offset;
 	struct wcd9xxx_mbhc_imped_detect_cfg *imped_cfg;
 	struct wcd9xxx_mbhc_btn_detect_cfg *btn_cfg;
+	struct firmware_cal fw;
 
-	if (fw->size < WCD9XXX_MBHC_CAL_MIN_SIZE)
+	fw.data = (void *)data;
+	fw.size = size;
+
+	if (fw.size < WCD9XXX_MBHC_CAL_MIN_SIZE)
 		return false;
 
 	/*
 	 * Previous check guarantees that there is enough fw data up
 	 * to num_btn
 	 */
-	btn_cfg = WCD9XXX_MBHC_CAL_BTN_DET_PTR(fw->data);
-	cfg_offset = (u32) ((void *) btn_cfg - (void *) fw->data);
-	if (fw->size < (cfg_offset + WCD9XXX_MBHC_CAL_BTN_SZ(btn_cfg)))
+        btn_cfg = WCD9XXX_MBHC_CAL_BTN_DET_PTR(fw.data);
+        cfg_offset = (u32) ((void *) btn_cfg - (void *) fw.data);
+        if (fw.size < (cfg_offset + WCD9XXX_MBHC_CAL_BTN_SZ(btn_cfg)))
 		return false;
 
 	/*
 	 * Previous check guarantees that there is enough fw data up
 	 * to start of impedance detection configuration
 	 */
-	imped_cfg = WCD9XXX_MBHC_CAL_IMPED_DET_PTR(fw->data);
-	cfg_offset = (u32) ((void *) imped_cfg - (void *) fw->data);
+        imped_cfg = WCD9XXX_MBHC_CAL_IMPED_DET_PTR(fw.data);
+        cfg_offset = (u32) ((void *) imped_cfg - (void *) fw.data);
 
-	if (fw->size < (cfg_offset + WCD9XXX_MBHC_CAL_IMPED_MIN_SZ))
+	if (fw.size < (cfg_offset + WCD9XXX_MBHC_CAL_IMPED_MIN_SZ))
 		return false;
 
-	if (fw->size < (cfg_offset + WCD9XXX_MBHC_CAL_IMPED_SZ(imped_cfg)))
+	if (fw.size < (cfg_offset + WCD9XXX_MBHC_CAL_IMPED_SZ(imped_cfg)))
 		return false;
 
 	return true;
@@ -3310,137 +3286,70 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 			if (!mbhc->mbhc_cfg->detect_extn_cable &&
 			    retry == NUM_ATTEMPTS_TO_REPORT &&
 			    mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
+#if defined( CONFIG_SMARTPHONE_PIERCE )
+				report_remove_smartphone_pierce( mbhc );
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 				WCD9XXX_BCL_LOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 				wcd9xxx_report_plug(mbhc, 1,
 						    SND_JACK_HEADPHONE);
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
 				WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 			}
 #if defined( CONFIG_SMARTPHONE_PIERCE )
-            else{
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-				if( mbhc->current_plug == PLUG_TYPE_HEADPHONE ){
-					pr_debug( "%s: remove headpone\n", __func__ );
-					WCD9XXX_BCL_LOCK(mbhc->resmgr);
-					wcd9xxx_report_plug( mbhc, 0, SND_JACK_HEADPHONE );
-					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-				}else if( mbhc->current_plug == PLUG_TYPE_GND_MIC_SWAP ){
-					pr_debug( "%s: remove gnd_mic_swap\n", __func__ );
-					WCD9XXX_BCL_LOCK(mbhc->resmgr);
-					wcd9xxx_report_plug( mbhc, 0, SND_JACK_UNSUPPORTED);
-					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-				}else if( mbhc->current_plug == PLUG_TYPE_HEADSET ){
-					pr_debug( "%s: remove headset\n", __func__ );
-					WCD9XXX_BCL_LOCK(mbhc->resmgr);
-					wcd9xxx_report_plug( mbhc, 0, SND_JACK_HEADSET );
-					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-				}else if( mbhc->current_plug == PLUG_TYPE_HIGH_HPH ){
-					pr_debug( "%s: remove high_hph\n", __func__ );
-					WCD9XXX_BCL_LOCK(mbhc->resmgr);
-					wcd9xxx_report_plug( mbhc, 0, SND_JACK_LINEOUT );
-					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-				}else if( mbhc->current_plug == PLUG_TYPE_ANC_HEADPHONE ){
-					pr_debug( "%s: remove anc_headphone", __func__ );
-					WCD9XXX_BCL_LOCK(mbhc->resmgr);
-					wcd9xxx_report_plug( mbhc, 0, SND_JACK_ANC_HEADPHONE );
-					WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-				}
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
-                report_insert_smartphone_pierce( mbhc );
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL63 )
-				if( already_called_insert_sp_pierce ) break;
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL63 */
-            }
+			else{
+				report_insert_smartphone_pierce( mbhc );
+			}
 #endif /* CONFIG_SMARTPHONE_PIERCE */
 		} else if (plug_type == PLUG_TYPE_HEADPHONE) {
 #ifdef CONFIG_SH_AUDIO_DRIVER /*09-051*/
 			if(retry > NUM_ATTEMPTS_TO_REPORT - 4){
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
-				WCD9XXX_BCL_LOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
-				pr_debug("Good headphone detected, continue polling\n");
-				if (mbhc->mbhc_cfg->detect_extn_cable) {
-					if (mbhc->current_plug != plug_type)
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                    {
-                        report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
-						wcd9xxx_report_plug(mbhc, 1,
-							    SND_JACK_HEADPHONE);
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                    }
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
-				} else if (mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                    report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
-					wcd9xxx_report_plug(mbhc, 1,
-							    SND_JACK_HEADPHONE);
-				}
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
-				WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
-			}
-#else
+#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-051*/
 			pr_debug("Good headphone detected, continue polling\n");
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
 			WCD9XXX_BCL_LOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 			if (mbhc->mbhc_cfg->detect_extn_cable) {
 				if (mbhc->current_plug != plug_type)
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                {
-                    report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#if defined( CONFIG_SMARTPHONE_PIERCE )
+				{
+					report_remove_smartphone_pierce( mbhc );
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 					wcd9xxx_report_plug(mbhc, 1,
 							    SND_JACK_HEADPHONE);
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                }
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#if defined( CONFIG_SMARTPHONE_PIERCE )
+				}
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 			} else if (mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#if defined( CONFIG_SMARTPHONE_PIERCE )
+				report_remove_smartphone_pierce( mbhc );
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 				wcd9xxx_report_plug(mbhc, 1,
 						    SND_JACK_HEADPHONE);
 			}
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
 			WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
+#ifdef CONFIG_SH_AUDIO_DRIVER /*09-051*/
+			}
 #endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-051*/
 		} else if (plug_type == PLUG_TYPE_HIGH_HPH) {
 			pr_debug("%s: High HPH detected, continue polling\n",
 				  __func__);
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
 			WCD9XXX_BCL_LOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 			if (mbhc->mbhc_cfg->detect_extn_cable) {
 				if (mbhc->current_plug != plug_type)
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                {
-                    report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#if defined( CONFIG_SMARTPHONE_PIERCE )
+				{
+					report_remove_smartphone_pierce( mbhc );
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 					wcd9xxx_report_plug(mbhc, 1,
 							    SND_JACK_LINEOUT);
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                }
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#if defined( CONFIG_SMARTPHONE_PIERCE )
+				}
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 			} else if (mbhc->current_plug == PLUG_TYPE_NONE) {
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
-                report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#if defined( CONFIG_SMARTPHONE_PIERCE )
+				report_remove_smartphone_pierce( mbhc );
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 				wcd9xxx_report_plug(mbhc, 1,
 						    SND_JACK_HEADPHONE);
 			}
-#ifdef CONFIG_SH_AUDIO_DRIVER /*09-108*/
 			WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-#endif /* CONFIG_SH_AUDIO_DRIVER */ /*09-108*/
 		} else {
 			if (plug_type == PLUG_TYPE_GND_MIC_SWAP) {
 				pt_gnd_mic_swap_cnt++;
@@ -3475,9 +3384,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 			/*
 			 * The valid plug also includes PLUG_TYPE_GND_MIC_SWAP
 			 */
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
+#if defined( CONFIG_SMARTPHONE_PIERCE )
             report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 			wcd9xxx_find_plug_and_report(mbhc, plug_type);
 			WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
 			pr_debug("Attempt %d found correct plug %d\n", retry,
@@ -3495,9 +3404,9 @@ static void wcd9xxx_correct_swch_plug(struct work_struct *work)
 		wcd9xxx_find_plug_and_report(mbhc, plug_type);
 		highhph = true;
 		WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
-#if defined( CONFIG_SMARTPHONE_PIERCE_DL60 )
+#if defined( CONFIG_SMARTPHONE_PIERCE )
         report_remove_smartphone_pierce( mbhc );
-#endif /* CONFIG_SMARTPHONE_PIERCE_DL60 */
+#endif /* CONFIG_SMARTPHONE_PIERCE */
 	}
 
 	if (!correction && current_source_enable)
@@ -3905,6 +3814,7 @@ irqreturn_t wcd9xxx_dce_handler(int irq, void *data)
 	pr_debug("%s: enter\n", __func__);
 
 	WCD9XXX_BCL_LOCK(mbhc->resmgr);
+	mutex_lock(&mbhc->mbhc_lock);
 	mbhc_status = snd_soc_read(codec, WCD9XXX_A_CDC_MBHC_B1_STATUS) & 0x3E;
 
 #ifdef CONFIG_SH_AUDIO_DRIVER /* 09-004 */
@@ -3915,6 +3825,7 @@ irqreturn_t wcd9xxx_dce_handler(int irq, void *data)
 	//mbhc sometimes crached by unexpected dce_handler call
 	wcd9xxx_update_z(mbhc);
 #endif /* CONFIG_SH_AUDIO_DRIVER */ /* 09-004 */
+
 	if (mbhc->mbhc_state == MBHC_STATE_POTENTIAL_RECOVERY) {
 		pr_debug("%s: mbhc is being recovered, skip button press\n",
 			 __func__);
@@ -4096,6 +4007,7 @@ irqreturn_t wcd9xxx_dce_handler(int irq, void *data)
 
  done:
 	pr_debug("%s: leave\n", __func__);
+	mutex_unlock(&mbhc->mbhc_lock);
 	WCD9XXX_BCL_UNLOCK(mbhc->resmgr);
 	return IRQ_HANDLED;
 }
@@ -4591,7 +4503,9 @@ static void wcd9xxx_mbhc_fw_read(struct work_struct *work)
 	struct wcd9xxx_mbhc *mbhc;
 	struct snd_soc_codec *codec;
 	const struct firmware *fw;
+        struct firmware_cal *fw_data = NULL;
 	int ret = -1, retry = 0;
+	bool use_default_cal = false;
 
 	dwork = to_delayed_work(work);
 	mbhc = container_of(dwork, struct wcd9xxx_mbhc, mbhc_firmware_dwork);
@@ -4599,29 +4513,62 @@ static void wcd9xxx_mbhc_fw_read(struct work_struct *work)
 
 	while (retry < FW_READ_ATTEMPTS) {
 		retry++;
-		pr_info("%s:Attempt %d to request MBHC firmware\n",
-			__func__, retry);
-		ret = request_firmware(&fw, "wcd9320/wcd9320_mbhc.bin",
-				       codec->dev);
-
-		if (ret != 0) {
+		pr_debug("%s:Attempt %d to request MBHC firmware\n",
+                               __func__, retry);
+		if (mbhc->mbhc_cb->get_hwdep_fw_cal)
+			fw_data = mbhc->mbhc_cb->get_hwdep_fw_cal(codec,
+					WCD9XXX_MBHC_CAL);
+		if (!fw_data)
+			ret = request_firmware(&fw, "wcd9320/wcd9320_mbhc.bin",
+                                       codec->dev);
+		/*
+		* if request_firmware and hwdep cal both fail then
+		* retry for few times before bailing out
+		*/
+		if ((ret != 0) && !fw_data) {
 			usleep_range(FW_READ_TIMEOUT, FW_READ_TIMEOUT);
 		} else {
 			pr_info("%s: MBHC Firmware read succesful\n", __func__);
 			break;
 		}
 	}
-
-	if (ret != 0) {
+	if (!fw_data)
+		pr_debug("%s: using request_firmware\n", __func__);
+	else
+		pr_debug("%s: using hwdep cal\n", __func__);
+	if (ret != 0 && !fw_data) {
 		pr_err("%s: Cannot load MBHC firmware use default cal\n",
-		       __func__);
-	} else if (wcd9xxx_mbhc_fw_validate(fw) == false) {
-		pr_err("%s: Invalid MBHC cal data size use default cal\n",
-		       __func__);
-		release_firmware(fw);
-	} else {
-		mbhc->mbhc_cfg->calibration = (void *)fw->data;
-		mbhc->mbhc_fw = fw;
+			__func__);
+		use_default_cal = true;
+	}
+	if (!use_default_cal) {
+		const void *data;
+		size_t size;
+
+		if (fw_data) {
+			data = fw_data->data;
+			size = fw_data->size;
+		} else {
+			data = fw->data;
+			size = fw->size;
+		}
+		if (wcd9xxx_mbhc_fw_validate(data, size) == false) {
+			pr_err("%s: Invalid MBHC cal data size use default cal\n",
+				__func__);
+			if (!fw_data)
+				release_firmware(fw);
+		} else {
+			if (fw_data) {
+				mbhc->mbhc_cfg->calibration =
+						(void *)fw_data->data;
+				mbhc->mbhc_cal = fw_data;
+			} else {
+				mbhc->mbhc_cfg->calibration =
+						(void *)fw->data;
+				mbhc->mbhc_fw = fw;
+			}
+		}
+
 	}
 
 	(void) wcd9xxx_init_and_calibrate(mbhc);
@@ -4811,15 +4758,16 @@ int wcd9xxx_mbhc_start(struct wcd9xxx_mbhc *mbhc,
 		mbhc->mbhc_cb->enable_clock_gate(mbhc->codec, true);
 
 	if (!mbhc->mbhc_cfg->read_fw_bin ||
-	    (mbhc->mbhc_cfg->read_fw_bin && mbhc->mbhc_fw)) {
+		(mbhc->mbhc_cfg->read_fw_bin && mbhc->mbhc_fw) ||
+		(mbhc->mbhc_cfg->read_fw_bin && mbhc->mbhc_cal)) {
 		rc = wcd9xxx_init_and_calibrate(mbhc);
 	} else {
-		if (!mbhc->mbhc_fw)
+		if (!mbhc->mbhc_fw || !mbhc->mbhc_cal)
 			schedule_delayed_work(&mbhc->mbhc_firmware_dwork,
 					     usecs_to_jiffies(FW_READ_TIMEOUT));
 		else
-			pr_debug("%s: Skipping to read mbhc fw, 0x%p\n",
-				 __func__, mbhc->mbhc_fw);
+			pr_debug("%s: Skipping to read mbhc fw, 0x%p 0x%p\n",
+				 __func__, mbhc->mbhc_fw, mbhc->mbhc_cal);
 	}
 
 	pr_debug("%s: leave %d\n", __func__, rc);
@@ -4829,10 +4777,12 @@ EXPORT_SYMBOL(wcd9xxx_mbhc_start);
 
 void wcd9xxx_mbhc_stop(struct wcd9xxx_mbhc *mbhc)
 {
-	if (mbhc->mbhc_fw) {
+	if (mbhc->mbhc_fw || mbhc->mbhc_cal) {
 		cancel_delayed_work_sync(&mbhc->mbhc_firmware_dwork);
-		release_firmware(mbhc->mbhc_fw);
+		if (!mbhc->mbhc_cal)
+			release_firmware(mbhc->mbhc_fw);
 		mbhc->mbhc_fw = NULL;
+		mbhc->mbhc_cal = NULL;
 	}
 }
 EXPORT_SYMBOL(wcd9xxx_mbhc_stop);
@@ -4948,6 +4898,7 @@ static int wcd9xxx_event_notify(struct notifier_block *self, unsigned long val,
 	pr_debug("%s: enter event %s(%d)\n", __func__,
 		 wcd9xxx_get_event_string(event), event);
 
+	mutex_lock(&mbhc->mbhc_lock);
 	switch (event) {
 	/* MICBIAS usage change */
 	case WCD9XXX_EVENT_PRE_MICBIAS_1_ON:
@@ -5147,6 +5098,7 @@ static int wcd9xxx_event_notify(struct notifier_block *self, unsigned long val,
 		WARN(1, "Unknown event %d\n", event);
 		ret = -EINVAL;
 	}
+	mutex_unlock(&mbhc->mbhc_lock);
 
 	pr_debug("%s: leave\n", __func__);
 
@@ -5355,16 +5307,18 @@ int wcd9xxx_mbhc_init(struct wcd9xxx_mbhc *mbhc, struct wcd9xxx_resmgr *resmgr,
 				  wcd9xxx_mbhc_insert_work);
 	}
 
+	mutex_init(&mbhc->mbhc_lock);
+
 	/* Register event notifier */
 	mbhc->nblock.notifier_call = wcd9xxx_event_notify;
 	ret = wcd9xxx_resmgr_register_notifier(mbhc->resmgr, &mbhc->nblock);
 	if (ret) {
 		pr_err("%s: Failed to register notifier %d\n", __func__, ret);
+		mutex_destroy(&mbhc->mbhc_lock);
 		return ret;
 	}
 
 	wcd9xxx_init_debugfs(mbhc);
-
 
 	/* Disable Impedance detection by default for certain codec types */
 	if (mbhc->mbhc_cb &&
@@ -5450,6 +5404,8 @@ err_remove_irq:
 err_insert_irq:
 	wcd9xxx_resmgr_unregister_notifier(mbhc->resmgr, &mbhc->nblock);
 
+	mutex_destroy(&mbhc->mbhc_lock);
+
 	pr_debug("%s: leave ret %d\n", __func__, ret);
 	return ret;
 }
@@ -5471,6 +5427,7 @@ void wcd9xxx_mbhc_deinit(struct wcd9xxx_mbhc *mbhc)
 	wcd9xxx_free_irq(core_res, mbhc->intr_ids->hph_left_ocp, mbhc);
 	wcd9xxx_free_irq(core_res, mbhc->intr_ids->hph_right_ocp, mbhc);
 
+	mutex_destroy(&mbhc->mbhc_lock);
 	wcd9xxx_resmgr_unregister_notifier(mbhc->resmgr, &mbhc->nblock);
 	wcd9xxx_cleanup_debugfs(mbhc);
 }

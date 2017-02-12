@@ -65,24 +65,12 @@
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,fsm9900")
 #define early_machine_is_msmsamarium()	\
 	of_flat_dt_is_compatible(of_get_flat_dt_root(), "qcom,msmsamarium")
-#define machine_is_sharp_whamu()		\
-	of_machine_is_compatible("qcom,sharp-whamu")
 #define machine_is_sharp_dl50()		\
 	of_machine_is_compatible("qcom,sharp-dl50")
 #define machine_is_sharp_as99()		\
 	of_machine_is_compatible("qcom,sharp-as99")
-#define machine_is_sharp_pa24()		\
-	of_machine_is_compatible("qcom,sharp-pa24")
-#define machine_is_sharp_gp9d()		\
-	of_machine_is_compatible("qcom,sharp-gp9d")
 #define machine_is_sharp_dl60()		\
 	of_machine_is_compatible("qcom,sharp-dl60")
-#define machine_is_sharp_pa26()		\
-	of_machine_is_compatible("qcom,sharp-pa26")
-#define machine_is_sharp_al15()		\
-	of_machine_is_compatible("qcom,sharp-al15")
-#define machine_is_sharp_dl63()		\
-	of_machine_is_compatible("qcom,sharp-dl63")
 #else
 #define of_board_is_sim()		0
 #define of_board_is_rumi()		0
@@ -110,15 +98,9 @@
 #define early_machine_is_fsm9900()	0
 #define early_machine_is_msmsamarium()	0
 
-#define machine_is_sharp_whamu()	0
-#define machine_is_sharp_dl60()		0
 #define machine_is_sharp_dl50()		0
 #define machine_is_sharp_as99()		0
-#define machine_is_sharp_pa24()		0
-#define machine_is_sharp_gp9d()		0
-#define machine_is_sharp_pa26()		0
-#define machine_is_sharp_al15()		0
-#define machine_is_sharp_dl63()		0
+#define machine_is_sharp_dl60()		0
 
 #endif
 

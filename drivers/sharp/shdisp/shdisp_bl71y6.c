@@ -93,7 +93,7 @@
 #define SHDISP_BDIC_TRI_LED_MODE_PATTERN1      (11)
 #define SHDISP_BDIC_TRI_LED_MODE_PATTERN2      (12)
 
-#define SHDISP_BDIC_GET_ADO_RETRY_TIMES         (3)
+#define SHDISP_BDIC_GET_ADO_RETRY_TIMES         (4)
 #define SHDISP_BDIC_MAX_ADO_VALUE          (0xFFFF)
 #define SHDISP_BDIC_RATIO_OF_ALS0          (64 / 4)
 #define SHDISP_BDIC_RATIO_OF_ALS1          (60 / 4)
@@ -159,8 +159,14 @@ static void shdisp_bdic_seq_led_pattern2_on2(int interval, int count);
 #endif  /* SHDISP_EXTEND_COLOR_LED */
 #endif  /* SHDISP_TRI_LED2 */
 static void shdisp_bdic_LD_set_led_fix_on_table(int clr_vari, int color);
-static int  shdisp_bdic_LD_PHOTO_SENSOR_get_lux(unsigned short *value, unsigned long *lux);
+static int  shdisp_bdic_LD_PHOTO_SENSOR_get_lux(unsigned short *ado, unsigned long *lux, unsigned short *clear, unsigned short *ir);
 static int  shdisp_bdic_LD_PHOTO_SENSOR_get_raw_als(unsigned short *clear, unsigned short *ir);
+#ifdef SHDISP_ALS_INT
+static int shdisp_bdic_LD_PHOTO_SENSOR_set_alsint(struct shdisp_photo_sensor_int_trigger *value);
+static int shdisp_bdic_LD_PHOTO_SENSOR_get_alsint(struct shdisp_photo_sensor_int_trigger *value);
+static int shdisp_bdic_LD_set_als_int(struct shdisp_photo_sensor_int_trigger *value);
+static int shdisp_bdic_LD_PHOTO_SENSOR_get_lightinfo(struct shdisp_light_info *value);
+#endif /* SHDISP_ALS_INT */
 static void shdisp_bdic_LD_LCD_BKL_dtv_on(void);
 static void shdisp_bdic_LD_LCD_BKL_dtv_off(void);
 static void shdisp_bdic_LD_LCD_BKL_emg_on(void);
@@ -198,7 +204,6 @@ static void shdisp_bdic_PD_TRI_LED_set_chdig(void);
 static void shdisp_bdic_PD_TRI_LED_lposc_off(void);
 static int shdisp_bdic_PD_TRI_LED_get_clrvari_index(int clrvari);
 static int shdisp_bdic_PD_get_sensor_state(void);
-static int shdisp_bdic_PD_wait4i2ctimer_start(void);
 static int shdisp_bdic_PD_wait4i2ctimer_stop(void);
 static int  shdisp_bdic_PD_psals_power_on(void);
 static int  shdisp_bdic_PD_psals_power_off(void);
@@ -212,8 +217,12 @@ static int  shdisp_bdic_PD_psals_als_deinit_ps_off(void);
 static int  shdisp_bdic_PD_psals_als_deinit_ps_on(void);
 static int  shdisp_bdic_PD_get_ave_ado(struct shdisp_ave_ado *ave_ado);
 
-static int  shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *value);
+static int  shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *ado, unsigned short *clear, unsigned short *ir);
 static void shdisp_bdic_PD_REG_RAW_DATA_get_opt(unsigned short *clear, unsigned short *ir);
+#ifdef SHDISP_ALS_INT
+static int shdisp_bdic_PD_REG_int_setting(struct shdisp_photo_sensor_int_trigger *trigger);
+static int shdisp_bdic_chk_als_trigger(struct shdisp_photo_sensor_trigger *trigger);
+#endif /* SHDISP_ALS_INT */
 #ifdef SHDISP_TRI_LED2
 static void shdisp_bdic_PD_TRI_LED_control2(unsigned char request, int param);
 static void shdisp_bdic_PD_TRI_LED_set_chdig2(void);
@@ -243,6 +252,8 @@ static void shdisp_bdic_set_default_sensor_param(struct shdisp_photo_sensor_adj 
 
 static void shdisp_bdic_als_shift_ps_on_table_adjust(struct shdisp_photo_sensor_adj *adj);
 static void shdisp_bdic_als_shift_ps_off_table_adjust(struct shdisp_photo_sensor_adj *adj);
+
+static int shdisp_bdic_als_user_to_devtype(int type);
 
 /* ------------------------------------------------------------------------- */
 /* VARIABLES                                                                 */
@@ -304,9 +315,11 @@ module_param(mled_delay_ms2, int, 0600);
 module_param(slope_fast, int, 0600);
 #endif /* CONFIG_ANDROID_ENGINEERING */
 
+#ifdef SHDISP_ALS_INT
+static struct shdisp_photo_sensor_int_trigger sensor_int_trigger;
+#endif /* SHDISP_ALS_INT */
+
 static int shdisp_bdic_ado_for_brightness;
-static signed char shdisp_bdic_before_range;
-static unsigned short shdisp_bdic_before_ado;
 
 /* ------------------------------------------------------------------------- */
 /* FUNCTIONS                                                                 */
@@ -353,9 +366,6 @@ int shdisp_bdic_API_boot_init( void )
 
     shdisp_bdic_ado_for_brightness      = SHDISP_BDIC_INVALID_ADO;
 
-    shdisp_bdic_before_range    = SHDISP_BDIC_INVALID_RANGE;
-    shdisp_bdic_before_ado      = 0;
-
     shdisp_bdic_register_driver();
 
 #ifdef SHDISP_BDIC_HW_INIT
@@ -399,6 +409,9 @@ int shdisp_bdic_API_initialize(struct shdisp_bdic_state_str *state_str)
         shdisp_bdic_als_shift_ps_off_table_adjust(&(s_state_str.photo_sensor_adj));
     }
 
+#ifdef SHDISP_ALS_INT
+    memset(&sensor_int_trigger, 0x00, sizeof(struct shdisp_photo_sensor_int_trigger));
+#endif /* SHDISP_ALS_INT */
     return s_state_str.bdic_chipver;
 }
 
@@ -1200,7 +1213,7 @@ int  shdisp_bdic_API_PHOTO_SENSOR_get_lux(unsigned short *value, unsigned long *
 {
     int ret;
 
-    ret = shdisp_bdic_LD_PHOTO_SENSOR_get_lux(value, lux);
+    ret = shdisp_bdic_LD_PHOTO_SENSOR_get_lux(value, lux, NULL, NULL);
 
     return ret;
 }
@@ -1217,10 +1230,48 @@ int  shdisp_bdic_API_PHOTO_SENSOR_get_raw_als(unsigned short *clear, unsigned sh
     return ret;
 }
 
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_API_PHOTO_SENSOR_set_alsint                                   */
+/* ------------------------------------------------------------------------- */
+int shdisp_bdic_API_PHOTO_SENSOR_set_alsint(struct shdisp_photo_sensor_int_trigger *value)
+{
+    int ret;
+
+    ret = shdisp_bdic_LD_PHOTO_SENSOR_set_alsint(value);
+
+    return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_API_PHOTO_SENSOR_get_alsint                                   */
+/* ------------------------------------------------------------------------- */
+int shdisp_bdic_API_PHOTO_SENSOR_get_alsint(struct shdisp_photo_sensor_int_trigger *value)
+{
+    int ret;
+
+    ret = shdisp_bdic_LD_PHOTO_SENSOR_get_alsint(value);
+
+    return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_API_PHOTO_SENSOR_get_light_info                                  */
+/* ------------------------------------------------------------------------- */
+int shdisp_bdic_API_PHOTO_SENSOR_get_light_info(struct shdisp_light_info *value)
+{
+    int ret;
+
+    ret = shdisp_bdic_LD_PHOTO_SENSOR_get_lightinfo(value);
+
+    return ret;
+}
+#endif /* SHDISP_ALS_INT */
+
 /* ------------------------------------------------------------------------- */
 /* shdisp_bdic_API_PHOTO_SENSOR_lux_change_ind                               */
 /* ------------------------------------------------------------------------- */
-int  shdisp_bdic_API_PHOTO_SENSOR_lux_change_ind(int *mode)
+int shdisp_bdic_API_PHOTO_SENSOR_lux_change_ind(int *mode)
 {
     if (s_state_str.bdic_main_bkl_opt_mode_ado == SHDISP_BDIC_MAIN_BKL_OPT_LOW) {
         *mode = SHDISP_LUX_MODE_LOW;
@@ -1677,6 +1728,15 @@ void shdisp_bdic_API_IRQ_save_fac(void)
         shdisp_bdic_irq_fac |= SHDISP_BDIC_INT_GFAC_DET;
         shdisp_bdic_irq_det_flag = 2;
     }
+
+#ifdef SHDISP_ALS_INT
+    value1 = 0;
+    shdisp_bdic_IO_read_reg(BDIC_REG_GFAC2, &value1);
+    value1 &= 0x30;
+    SHDISP_DEBUG("GFAC2=%02x ", value1);
+    shdisp_bdic_irq_fac = shdisp_bdic_irq_fac | ((unsigned int)value1 << 20);
+#endif /* SHDISP_ALS_INT */
+
     return;
 }
 
@@ -1741,6 +1801,20 @@ int shdisp_bdic_API_IRQ_check_fac(void)
     } else if ((shdisp_bdic_irq_fac_exe & (SHDISP_BDIC_INT_GFAC_ALS | SHDISP_BDIC_INT_GFAC_OPTSEL)) != 0) {
         shdisp_bdic_irq_prioriy[i] = SHDISP_BDIC_IRQ_TYPE_ALS;
         i++;
+#ifdef SHDISP_ALS_INT
+    } else if ((shdisp_bdic_irq_fac_exe & (SHDISP_BDIC_INT_GFAC_ALS_TRG1 | SHDISP_BDIC_INT_GFAC_ALS_TRG2)) != 0) {
+        if ((shdisp_bdic_irq_fac_exe & SHDISP_BDIC_INT_GFAC_ALS_TRG1) != 0) {
+            shdisp_bdic_irq_prioriy[i] = SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER1;
+        }
+        if ((shdisp_bdic_irq_fac_exe & SHDISP_BDIC_INT_GFAC_ALS_TRG2) != 0) {
+            shdisp_bdic_irq_prioriy[i] = SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER2;
+        }
+        if ((shdisp_bdic_irq_fac_exe & (SHDISP_BDIC_INT_GFAC_ALS_TRG1 | SHDISP_BDIC_INT_GFAC_ALS_TRG2))
+            == (SHDISP_BDIC_INT_GFAC_ALS_TRG1 | SHDISP_BDIC_INT_GFAC_ALS_TRG2)) {
+            shdisp_bdic_irq_prioriy[i] = SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER;
+        }
+        i++;
+#endif /* SHDISP_ALS_INT */
     }
 
     return SHDISP_RESULT_SUCCESS;
@@ -1789,6 +1863,7 @@ void shdisp_bdic_API_IRQ_Clear(void)
         shdisp_bdic_IO_set_bit_reg(BDIC_REG_GIMF3, 0x02);
     }
 
+
     if (((shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_DET) &&
          (SHDISP_INT_ENABLE_GFAC & SHDISP_BDIC_INT_GFAC_DET)) ||
         ((shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_PS2) &&
@@ -1805,6 +1880,36 @@ void shdisp_bdic_API_IRQ_Clear(void)
             shdisp_bdic_IO_set_bit_reg(BDIC_REG_GIMR4, 0x20);
         }
     }
+
+#ifdef SHDISP_ALS_INT
+    if ((shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_ALS_TRG1) || (shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_ALS_TRG2)) {
+        out1 = 0;
+        if (shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_ALS_TRG1) {
+            out1 = out1 | SHDISP_BDIC_OPT_TABLE1_IMR;
+        }
+        if (shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_ALS_TRG2) {
+            out1 = out1 | SHDISP_BDIC_OPT_TABLE2_IMR;
+        }
+        shdisp_bdic_reg_als_int_clear[1].mask = out1;
+        SHDISP_BDIC_REGSET(shdisp_bdic_reg_als_int_clear);
+
+        out1 = 0;
+        if (shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_ALS_TRG1) {
+            out1 = out1 | SHDISP_BDIC_OPT_TABLE1_IMR;
+            shdisp_bdic_IO_write_reg(BDIC_REG_OPT_INT1, 0x00);
+            memset(&(sensor_int_trigger.trigger1), 0x00, sizeof(struct shdisp_photo_sensor_trigger));
+            SHDISP_DEBUG("<OTHER>TRIGGER1 clear");
+        }
+        if (shdisp_bdic_irq_fac & SHDISP_BDIC_INT_GFAC_ALS_TRG2) {
+            out1 = out1 | SHDISP_BDIC_OPT_TABLE2_IMR;
+            shdisp_bdic_IO_write_reg(BDIC_REG_OPT_INT2, 0x00);
+            memset(&(sensor_int_trigger.trigger2), 0x00, sizeof(struct shdisp_photo_sensor_trigger));
+            SHDISP_DEBUG("<OTHER>TRIGGER2 clear");
+        }
+        shdisp_bdic_IO_set_bit_reg(BDIC_REG_GSCR2, out1);
+        shdisp_bdic_IO_clr_bit_reg(BDIC_REG_GSCR2, out1);
+    }
+#endif /* SHDISP_ALS_INT */
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1914,23 +2019,10 @@ int shdisp_bdic_API_als_sensor_pow_ctl(int dev_type, int power_mode)
     unsigned long type = 0;
     int param_chk = 0;
 
-    switch (dev_type) {
-    case SHDISP_PHOTO_SENSOR_TYPE_APP:
-        type = SHDISP_DEV_TYPE_ALS_APP;
-        break;
-    case SHDISP_PHOTO_SENSOR_TYPE_CAMERA:
-        type = SHDISP_DEV_TYPE_CAMERA;
-        break;
-    case SHDISP_PHOTO_SENSOR_TYPE_KEYLED:
-        type = SHDISP_DEV_TYPE_KEYLED;
-        break;
-    case SHDISP_PHOTO_SENSOR_TYPE_DIAG:
-        type = SHDISP_DEV_TYPE_DIAG;
-        break;
-    default:
+    type = shdisp_bdic_als_user_to_devtype(dev_type);
+    if (type == NUM_SHDISP_PHOTO_SENSOR_TYPE) {
         param_chk = 1;
         SHDISP_ERR("<INVALID_VALUE> ctl->type(%d).", dev_type);
-        break;
     }
 
     switch (power_mode) {
@@ -1949,6 +2041,16 @@ int shdisp_bdic_API_als_sensor_pow_ctl(int dev_type, int power_mode)
     if (param_chk == 1) {
         return SHDISP_RESULT_FAILURE;
     }
+
+#ifdef SHDISP_ALS_INT
+    if ((dev_type == sensor_int_trigger.type) || (power_mode == SHDISP_PHOTO_SENSOR_DISABLE)) {
+        memset(&sensor_int_trigger, 0x00, sizeof(struct shdisp_photo_sensor_int_trigger));
+        shdisp_bdic_PD_REG_int_setting(&sensor_int_trigger);
+
+        return SHDISP_RESULT_ALS_INT_OFF;
+    }
+#endif /* SHDISP_ALS_INT */
+
     return SHDISP_RESULT_SUCCESS;
 }
 
@@ -2794,12 +2896,12 @@ static void shdisp_bdic_LD_set_led_fix_on_table(int clr_vari, int color)
 /* ------------------------------------------------------------------------- */
 /* shdisp_bdic_LD_PHOTO_SENSOR_get_lux                                       */
 /* ------------------------------------------------------------------------- */
-static int shdisp_bdic_LD_PHOTO_SENSOR_get_lux(unsigned short *value, unsigned long *lux)
+static int shdisp_bdic_LD_PHOTO_SENSOR_get_lux(unsigned short *ado, unsigned long *lux, unsigned short *clear, unsigned short *ir)
 {
     int ret;
     unsigned int i;
-    unsigned long ret_lux;
-    unsigned long ado;
+    unsigned int ret_lux;
+    unsigned short ado_tmp;
 
     SHDISP_TRACE("in");
 
@@ -2808,18 +2910,17 @@ static int shdisp_bdic_LD_PHOTO_SENSOR_get_lux(unsigned short *value, unsigned l
         return SHDISP_RESULT_FAILURE;
     }
 
-    ret = shdisp_bdic_PD_REG_ADO_get_opt(value);
+    ret = shdisp_bdic_PD_REG_ADO_get_opt(&ado_tmp, clear, ir);
     if (ret != SHDISP_RESULT_SUCCESS) {
         return ret;
     }
 
-    ado = (unsigned long)(*value);
     ret_lux = 0;
-    if (ado != 0) {
+    if (ado_tmp != 0) {
         for (i = 0; i < SHDISP_BDIC_LUX_TABLE_ARRAY_SIZE; i++) {
-            if ((ado >= shdisp_bdic_bkl_ado_tbl[i].range_low) &&
-                (ado < shdisp_bdic_bkl_ado_tbl[i].range_high)) {
-                ret_lux  = (unsigned long)((unsigned short)ado * (unsigned short)shdisp_bdic_bkl_ado_tbl[i].param_a);
+            if ((ado_tmp >= shdisp_bdic_bkl_ado_tbl[i].range_low) &&
+                (ado_tmp < shdisp_bdic_bkl_ado_tbl[i].range_high)) {
+                ret_lux  = (unsigned int)(ado_tmp * shdisp_bdic_bkl_ado_tbl[i].param_a);
                 ret_lux += shdisp_bdic_bkl_ado_tbl[i].param_b;
                 ret_lux += (SHDISP_BDIC_LUX_DIVIDE_COFF / 2);
                 ret_lux /= SHDISP_BDIC_LUX_DIVIDE_COFF;
@@ -2829,8 +2930,11 @@ static int shdisp_bdic_LD_PHOTO_SENSOR_get_lux(unsigned short *value, unsigned l
     }
 
     *lux = ret_lux;
+    if (ado) {
+        *ado = ado_tmp;
+    }
 
-    SHDISP_TRACE("out ado=0x%04X, lux=%lu", (unsigned int)ado, ret_lux);
+    SHDISP_TRACE("out ado=0x%04X, lux=%u", ado_tmp, ret_lux);
     return SHDISP_RESULT_SUCCESS;
 }
 
@@ -2851,6 +2955,127 @@ static int shdisp_bdic_LD_PHOTO_SENSOR_get_raw_als(unsigned short *clear, unsign
     SHDISP_TRACE("out clear=0x%04X, ir=0x%04X", (unsigned int)*clear, (unsigned int)*ir);
     return SHDISP_RESULT_SUCCESS;
 }
+
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_LD_PHOTO_SENSOR_set_alsint                                    */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_LD_PHOTO_SENSOR_set_alsint(struct shdisp_photo_sensor_int_trigger *value)
+{
+    unsigned int type = 0;
+    int ret;
+
+    SHDISP_TRACE("in");
+
+    ret = shdisp_bdic_chk_als_trigger(&(value->trigger1));
+    if (ret == SHDISP_RESULT_FAILURE) {
+        SHDISP_ERR("<INVALID_VALUE> trigger1.");
+        value->result = SHDISP_RESULT_FAILURE;
+        return SHDISP_RESULT_FAILURE;
+    }
+    ret = shdisp_bdic_chk_als_trigger(&(value->trigger2));
+    if (ret == SHDISP_RESULT_FAILURE) {
+        SHDISP_ERR("<INVALID_VALUE> trigger2.");
+        value->result = SHDISP_RESULT_FAILURE;
+        return SHDISP_RESULT_FAILURE;
+    }
+    type = shdisp_bdic_als_user_to_devtype(value->type);
+    if (type == NUM_SHDISP_PHOTO_SENSOR_TYPE) {
+        SHDISP_ERR("<INVALID_VALUE> type(%d).", value->type);
+        value->result = SHDISP_RESULT_FAILURE;
+        return SHDISP_RESULT_FAILURE;
+    }
+
+    if (shdisp_pm_API_is_active_als_user(type) != SHDISP_DEV_STATE_ON) {
+        SHDISP_ERR("<OTHER> photo sensor user none.");
+        value->result = SHDISP_RESULT_FAILURE;
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    if ((sensor_int_trigger.trigger1.enable != 0) || (sensor_int_trigger.trigger2.enable != 0)) {
+        if (sensor_int_trigger.type != value->type) {
+            SHDISP_WARN("request from other user.");
+        }
+    }
+
+    shdisp_bdic_LD_set_als_int(value);
+
+    SHDISP_TRACE("out");
+    return SHDISP_RESULT_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_LD_PHOTO_SENSOR_get_alsint                                    */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_LD_PHOTO_SENSOR_get_alsint(struct shdisp_photo_sensor_int_trigger *value)
+{
+    SHDISP_TRACE("in");
+
+    memcpy(value, &sensor_int_trigger, sizeof(struct shdisp_photo_sensor_int_trigger));
+    value->result = SHDISP_RESULT_SUCCESS;
+
+    SHDISP_TRACE("out");
+    return SHDISP_RESULT_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_LD_set_als_int                                                */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_LD_set_als_int(struct shdisp_photo_sensor_int_trigger *value)
+{
+    int ret;
+
+    SHDISP_TRACE("in");
+
+    if (value->trigger1.enable == 0) {
+        SHDISP_DEBUG("trigger1 disable");
+        memset(&value->trigger1, 0x00, sizeof(struct shdisp_photo_sensor_trigger));
+    }
+    if (value->trigger2.enable == 0) {
+        SHDISP_DEBUG("trigger2 disable");
+        memset(&value->trigger2, 0x00, sizeof(struct shdisp_photo_sensor_trigger));
+    }
+
+    memcpy(&sensor_int_trigger, value, sizeof(struct shdisp_photo_sensor_int_trigger));
+    value->result = SHDISP_RESULT_SUCCESS;
+
+    ret = shdisp_bdic_PD_REG_int_setting(&sensor_int_trigger);
+
+    SHDISP_TRACE("out");
+    return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_LD_PHOTO_SENSOR_get_lightinfo                                 */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_LD_PHOTO_SENSOR_get_lightinfo(struct shdisp_light_info *value)
+{
+    int ret;
+    unsigned long lux = 0;
+    unsigned short clear = 0, ir = 0;
+    unsigned char level = 0;
+
+    SHDISP_TRACE("in");
+
+    ret = shdisp_bdic_LD_PHOTO_SENSOR_get_lux(NULL, &lux, &clear, &ir);
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        value->result = SHDISP_RESULT_FAILURE;
+        return SHDISP_RESULT_FAILURE;
+    }
+    SHDISP_DEBUG("lux=%ld clear=%d ir=%d", lux, clear, ir);
+    value->lux = lux;
+    value->clear_ir_rate = (((unsigned int)ir * 1000) / (unsigned int)clear + 5 ) / 10;
+    shdisp_bdic_IO_bank_set(0x00);
+    shdisp_bdic_IO_read_reg(BDIC_REG_ADO_INDEX, &level);
+    value->level = (unsigned short)(level & 0x1F);
+    SHDISP_DEBUG("level=%d", value->level);
+
+    value->result = SHDISP_RESULT_SUCCESS;
+
+    SHDISP_TRACE("out");
+    return SHDISP_RESULT_SUCCESS;
+}
+#endif /* SHDISP_ALS_INT */
 
 /* ------------------------------------------------------------------------- */
 /* shdisp_bdic_LD_LCD_BKL_dtv_on                                             */
@@ -3557,7 +3782,7 @@ static void shdisp_bdic_PD_BKL_update_led_value(void)
     unsigned short ado_tmp;
 
     shdisp_bdic_ado_for_brightness = SHDISP_BDIC_INVALID_ADO;
-    ret = shdisp_bdic_PD_REG_ADO_get_opt(&ado_tmp);
+    ret = shdisp_bdic_PD_REG_ADO_get_opt(&ado_tmp, NULL, NULL);
     if (ret == SHDISP_RESULT_SUCCESS) {
         shdisp_bdic_ado_for_brightness = (int)ado_tmp;
     }
@@ -3589,7 +3814,7 @@ static void shdisp_bdic_PD_BKL_set_led_value(void)
             ado_tmp = (unsigned short)shdisp_bdic_ado_for_brightness;
             shdisp_bdic_ado_for_brightness = SHDISP_BDIC_INVALID_ADO;
         } else {
-            shdisp_bdic_PD_REG_ADO_get_opt(&ado_tmp);
+            shdisp_bdic_PD_REG_ADO_get_opt(&ado_tmp, NULL, NULL);
         }
         ado = (unsigned long)ado_tmp << 4;
         if (ado <= SHDISP_BDIC_BKL_AUTO_FIX_PARAM_MIN_ADO) {
@@ -4517,35 +4742,6 @@ static int shdisp_bdic_PD_get_sensor_state(void)
 }
 
 /* ------------------------------------------------------------------------- */
-/* shdisp_bdic_PD_wait4i2ctimer_start                                        */
-/* ------------------------------------------------------------------------- */
-static int shdisp_bdic_PD_wait4i2ctimer_start(void)
-{
-    int waitcnt = 3;
-    int ret;
-    unsigned char reg = BDIC_REG_SYSTEM8;
-    unsigned char val = 0x00;
-
-    do {
-        shdisp_SYS_API_delay_us(BDIC_WAIT_TIMER_START);
-        ret = shdisp_bdic_IO_read_reg(reg, &val);
-        SHDISP_DEBUG("retry(%d)!! SYSTEM8 = 0x%02x", waitcnt, val);
-        if (ret != SHDISP_RESULT_SUCCESS) {
-            continue;
-        }
-
-        if (val != 0xA0) {
-            continue;
-        }
-
-        return SHDISP_RESULT_SUCCESS;
-    } while (0 < --waitcnt);
-
-    SHDISP_ERR("i2ctimer wait failed.");
-    return SHDISP_RESULT_SUCCESS;
-}
-
-/* ------------------------------------------------------------------------- */
 /* shdisp_bdic_PD_wait4i2ctimer_stop                                         */
 /* ------------------------------------------------------------------------- */
 static int shdisp_bdic_PD_wait4i2ctimer_stop(void)
@@ -4933,9 +5129,6 @@ static int shdisp_bdic_PD_psals_als_deinit_ps_off(void)
         return ret;
     }
 
-    shdisp_bdic_before_range    = SHDISP_BDIC_INVALID_RANGE;
-    shdisp_bdic_before_ado      = 0;
-
     SHDISP_TRACE("out");
     return ret;
 }
@@ -4966,9 +5159,6 @@ static int shdisp_bdic_PD_psals_als_deinit_ps_on(void)
         return ret;
     }
 
-    shdisp_bdic_before_range    = SHDISP_BDIC_INVALID_RANGE;
-    shdisp_bdic_before_ado      = 0;
-
     SHDISP_TRACE("out");
     return ret;
 }
@@ -4991,17 +5181,17 @@ static int shdisp_bdic_PD_psals_write_threshold(struct shdisp_prox_params *prox_
 /* ------------------------------------------------------------------------- */
 /* shdisp_bdic_PD_REG_ADO_get_opt                                            */
 /* ------------------------------------------------------------------------- */
-static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *value)
+static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *ado, unsigned short *clear, unsigned short *ir)
 {
     int ret, shift_tmp;
     unsigned long ado0, ado1;
     unsigned short als0, als1;
     unsigned short alpha, beta, gamma;
     unsigned char rval[(SENSOR_REG_D1_MSB + 1) - SENSOR_REG_D0_LSB];
-    signed char before_range, range0, res;
+    signed char range0, res;
+    unsigned int retry, flag_a;
 
     SHDISP_TRACE("in");
-    SHDISP_DEBUG("before_range=%d, before_ado=%04X", shdisp_bdic_before_range, (int)shdisp_bdic_before_ado);
 
     shdisp_bdic_PD_i2c_throughmode_ctrl(true);
     ret = shdisp_bdic_IO_psals_read_reg(SENSOR_REG_COMMAND2, rval);
@@ -5013,9 +5203,26 @@ static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *value)
     res    = (rval[0] & 0x38) >> 3;
     SHDISP_DEBUG("range0=%d, res=%d", range0, res);
 
+    if(res != 0x05) {
+        for (retry = 0; retry < SHDISP_BDIC_GET_ADO_RETRY_TIMES; retry++) {
+            ret = shdisp_bdic_IO_psals_read_reg(SENSOR_REG_COMMAND1, rval);
+            if (ret != SHDISP_RESULT_SUCCESS) {
+                SHDISP_ERR("out2");
+                goto i2c_err;
+            }
+            flag_a = (rval[0] & 0x02) >> 1;
+            if (flag_a == 1) {
+                break;
+            }
+
+            shdisp_SYS_API_delay_us(25 * 1000);
+        }
+        SHDISP_DEBUG("retry=%d", retry);
+    }
+
     ret = shdisp_bdic_IO_psals_burst_read_reg(SENSOR_REG_D0_LSB, rval, sizeof(rval));
     if (ret != SHDISP_RESULT_SUCCESS) {
-        SHDISP_ERR("out2");
+        SHDISP_ERR("out3");
         goto i2c_err;
     }
     als0 = (rval[1] << 8 | rval[0]);
@@ -5025,16 +5232,6 @@ static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *value)
     SHDISP_BDIC_REGSET(shdisp_bdic_reg_ar_ctrl);
     shdisp_bdic_PD_i2c_throughmode_ctrl(false);
     shdisp_SYS_API_delay_us(1000);
-
-    before_range = shdisp_bdic_before_range;
-    shdisp_bdic_before_range = range0;
-
-    if ((res != 5) && (before_range != SHDISP_BDIC_INVALID_RANGE) &&
-        (before_range != range0)) {
-        *value = (unsigned short)shdisp_bdic_before_ado;
-        SHDISP_TRACE("out3");
-        return SHDISP_RESULT_SUCCESS;
-    }
 
     if ((als1 * SHDISP_BDIC_RATIO_OF_ALS0) > (als0 * SHDISP_BDIC_RATIO_OF_ALS1)) {
         alpha = s_state_str.photo_sensor_adj.als_adjust[1].als_adj0;
@@ -5075,8 +5272,15 @@ static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *value)
     if (ado1 > SHDISP_BDIC_MAX_ADO_VALUE) {
         ado1 = SHDISP_BDIC_MAX_ADO_VALUE;
     }
-    *value = (unsigned short)ado1;
-    shdisp_bdic_before_ado = ado1;
+    if (ado) {
+        *ado = (unsigned short)ado1;
+    }
+    if (clear) {
+        *clear = als0;
+    }
+    if (ir) {
+        *ir = als1;
+    }
 
     SHDISP_TRACE("out");
     return SHDISP_RESULT_SUCCESS;
@@ -5091,51 +5295,39 @@ i2c_err:
 /* ------------------------------------------------------------------------- */
 static void shdisp_bdic_PD_REG_RAW_DATA_get_opt(unsigned short *clear, unsigned short *ir)
 {
-    int i, ret;
+    int retry, ret;
     unsigned short als0, als1;
     unsigned char rval[(SENSOR_REG_D1_MSB + 1) - SENSOR_REG_D0_LSB];
-    signed char range0, range1;
+    unsigned char flag_a;
 
     SHDISP_TRACE("in");
 
-    ret = shdisp_bdic_PD_wait4i2ctimer_stop();
-    if (ret != SHDISP_RESULT_SUCCESS) {
-        SHDISP_ERR("out1");
-        return;
-    }
-
     shdisp_bdic_PD_i2c_throughmode_ctrl(true);
-    ret = shdisp_bdic_IO_psals_read_reg(SENSOR_REG_COMMAND2, rval);
-    if (ret != SHDISP_RESULT_SUCCESS) {
-        SHDISP_ERR("out2");
-        return;
-    }
-    range0 = rval[0] & 0x07;
 
-    for (i = 0; i < SHDISP_BDIC_GET_ADO_RETRY_TIMES; i++) {
-        ret = shdisp_bdic_IO_psals_burst_read_reg(SENSOR_REG_D0_LSB, rval, sizeof(rval));
+    for (retry = 0; retry < SHDISP_BDIC_GET_ADO_RETRY_TIMES; retry++){
+        ret = shdisp_bdic_IO_psals_read_reg(SENSOR_REG_COMMAND1, rval);
         if (ret != SHDISP_RESULT_SUCCESS) {
-            SHDISP_ERR("out3");
-            return;
+            SHDISP_ERR("out2");
+            goto i2c_err;
         }
-        als0 = (rval[1] << 8 | rval[0]);
-        als1 = (rval[3] << 8 | rval[2]);
-
-        ret = shdisp_bdic_IO_psals_read_reg(SENSOR_REG_COMMAND2, rval);
-        if (ret != SHDISP_RESULT_SUCCESS) {
-            SHDISP_ERR("out4");
-            return;
-        }
-        range1 = rval[0] & 0x07;
-        SHDISP_DEBUG("i=%d, range0=%d, range1=%d", i, range0, range1);
-        if (range0 == range1) {
+        flag_a= (rval[0] & 0x02) >> 1;
+        if (flag_a==1) {
             break;
         }
-        range0 = range1;
+        shdisp_SYS_API_delay_us(25 * 1000);
+    }
+    SHDISP_DEBUG("retry=%d", retry);
+
+    ret = shdisp_bdic_IO_psals_burst_read_reg(SENSOR_REG_D0_LSB, rval, sizeof(rval));
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        SHDISP_ERR("out3");
+        goto i2c_err;
     }
 
+    als0 = (rval[1] << 8 | rval[0]);
+    als1 = (rval[3] << 8 | rval[2]);
+
     shdisp_bdic_PD_i2c_throughmode_ctrl(false);
-    shdisp_bdic_PD_wait4i2ctimer_start();
     shdisp_SYS_API_delay_us(1000);
     *clear = als0;
     *ir = als1;
@@ -5144,7 +5336,88 @@ static void shdisp_bdic_PD_REG_RAW_DATA_get_opt(unsigned short *clear, unsigned 
 
     SHDISP_TRACE("out");
     return;
+
+i2c_err:
+    shdisp_bdic_PD_i2c_throughmode_ctrl(false);
+    return;
 }
+
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_PD_REG_int_setting                                            */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_PD_REG_int_setting(struct shdisp_photo_sensor_int_trigger *trigger)
+{
+    unsigned char opt_int_val1 = 0;
+    unsigned char opt_int_val2 = 0;
+    unsigned char gimr2_val = 0;
+
+    if(trigger->trigger1.enable) {
+        SHDISP_DEBUG("trigger1 level(%d) side(%d) hi_edge(%d) lo_edge(%d)", trigger->trigger1.level, trigger->trigger1.side,
+                                                                            trigger->trigger1.en_hi_edge, trigger->trigger1.en_lo_edge);
+        gimr2_val = gimr2_val | SHDISP_BDIC_OPT_TABLE1_IMR;
+        opt_int_val1 = trigger->trigger1.level;
+        if(trigger->trigger1.side) {
+            opt_int_val1 = opt_int_val1 | SHDISP_BDIC_OPT_TH_SIDE;
+        }
+        if(trigger->trigger1.en_hi_edge) {
+            opt_int_val1 = opt_int_val1 | SHDISP_BDIC_OPT_H_EDGE_EN;
+        }
+        if(trigger->trigger1.en_lo_edge) {
+            opt_int_val1 = opt_int_val1 | SHDISP_BDIC_OPT_L_EDGE_EN;
+        }
+    }
+    if(trigger->trigger2.enable) {
+        SHDISP_DEBUG("trigger2 level(%d) side(%d) hi_edge(%d) lo_edge(%d)", trigger->trigger2.level, trigger->trigger2.side,
+                                                                            trigger->trigger2.en_hi_edge, trigger->trigger2.en_lo_edge);
+        gimr2_val = gimr2_val | SHDISP_BDIC_OPT_TABLE2_IMR;
+        opt_int_val2 = trigger->trigger2.level;
+        if(trigger->trigger2.side) {
+            opt_int_val2 = opt_int_val2 | SHDISP_BDIC_OPT_TH_SIDE;
+        }
+        if(trigger->trigger2.en_hi_edge) {
+            opt_int_val2 = opt_int_val2 | SHDISP_BDIC_OPT_H_EDGE_EN;
+        }
+        if(trigger->trigger2.en_lo_edge) {
+            opt_int_val2 = opt_int_val2 | SHDISP_BDIC_OPT_L_EDGE_EN;
+        }
+    }
+    SHDISP_DEBUG("write OPT_INT1(0x%x) OPT_INT2(0x%x) GIMR2(0x%x)", opt_int_val1, opt_int_val2, gimr2_val);
+    shdisp_bdic_reg_als_int_setting[1].data = opt_int_val1;
+    shdisp_bdic_reg_als_int_setting[2].data = opt_int_val2;
+    shdisp_bdic_reg_als_int_setting[3].data = gimr2_val;
+
+    SHDISP_BDIC_REGSET(shdisp_bdic_reg_als_int_setting);
+
+    return SHDISP_RESULT_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_chk_als_trigger                                               */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_chk_als_trigger(struct shdisp_photo_sensor_trigger *trigger)
+{
+    int ret = SHDISP_RESULT_SUCCESS;
+
+    if ((trigger->level < 0) || (trigger->level >= SHDISP_BKL_AUTO_OPT_TBL_NUM)) {
+        ret = SHDISP_RESULT_FAILURE;
+    }
+    if ((trigger->side < 0) || (trigger->side > 1)) {
+        ret = SHDISP_RESULT_FAILURE;
+    }
+    if ((trigger->en_hi_edge < 0) || (trigger->en_hi_edge > 1)) {
+        ret = SHDISP_RESULT_FAILURE;
+    }
+    if ((trigger->en_lo_edge < 0) || (trigger->en_lo_edge > 1)) {
+        ret = SHDISP_RESULT_FAILURE;
+    }
+    if ((trigger->enable < 0) || (trigger->enable > 1)) {
+        ret = SHDISP_RESULT_FAILURE;
+    }
+
+    return ret;
+}
+#endif /* SHDISP_ALS_INT */
 
 /* ------------------------------------------------------------------------- */
 /* shdisp_bdic_PD_get_ave_ado                                                */
@@ -5260,6 +5533,36 @@ static void shdisp_bdic_als_shift_ps_off_table_adjust(struct shdisp_photo_sensor
     shdisp_bdic_set_als_shift_ps_off[4].data = als_shift2;
 
     return;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_als_user_to_devtype                                           */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_als_user_to_devtype(int sensor_type)
+{
+    int dev_type = NUM_SHDISP_PHOTO_SENSOR_TYPE;
+
+    switch (sensor_type) {
+    case SHDISP_PHOTO_SENSOR_TYPE_APP:
+        dev_type = SHDISP_DEV_TYPE_ALS_APP;
+        break;
+    case SHDISP_PHOTO_SENSOR_TYPE_CAMERA:
+        dev_type = SHDISP_DEV_TYPE_CAMERA;
+        break;
+    case SHDISP_PHOTO_SENSOR_TYPE_KEYLED:
+        dev_type = SHDISP_DEV_TYPE_KEYLED;
+        break;
+    case SHDISP_PHOTO_SENSOR_TYPE_DIAG:
+        dev_type = SHDISP_DEV_TYPE_DIAG;
+        break;
+    case SHDISP_PHOTO_SENSOR_TYPE_SENSORHUB:
+        dev_type = SHDISP_DEV_TYPE_SENSORHUB;
+        break;
+    default:
+        break;
+    }
+
+    return dev_type;
 }
 
 /* ------------------------------------------------------------------------- */

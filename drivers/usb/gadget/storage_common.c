@@ -621,10 +621,10 @@ fsg_ep_desc(struct usb_gadget *g, struct usb_endpoint_descriptor *fs,
 
 /* Static strings, in UTF-8 (for simplicity we use only ASCII characters) */
 static struct usb_string		fsg_strings[] = {
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE_CD
-	/* cd_iInterface declared in sh_string.c */
-	{FSG_STRING_INTERFACE,		cd_iInterface},
-#else /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
+#ifdef CONFIG_USB_ANDROID_SH_UMS
+	/* msc_iInterface declared in sh_string.c */
+	[0].s = msc_iInterface,
+#else /* CONFIG_USB_ANDROID_SH_UMS */
 #ifndef FSG_NO_DEVICE_STRINGS
 	{FSG_STRING_MANUFACTURER,	fsg_string_manufacturer},
 	{FSG_STRING_PRODUCT,		fsg_string_product},
@@ -632,7 +632,7 @@ static struct usb_string		fsg_strings[] = {
 	{FSG_STRING_CONFIG,		fsg_string_config},
 #endif
 	{FSG_STRING_INTERFACE,		fsg_string_interface},
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
+#endif /* CONFIG_USB_ANDROID_SH_UMS */
 	{}
 };
 
@@ -715,9 +715,7 @@ static int fsg_lun_open(struct fsg_lun *curlun, const char *filename)
 	num_sectors = size >> curlun->blkbits; /* File size in logic-block-size blocks */
 	min_sectors = 1;
 	if (curlun->cdrom) {
-#ifndef CONFIG_USB_ANDROID_MASS_STORAGE_CD
 		min_sectors = 300;	/* Smallest track is 300 frames */
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE_CD */
 		if (num_sectors >= 256*60*75) {
 			num_sectors = 256*60*75 - 1;
 			LINFO(curlun, "file too big: %s\n", filename);

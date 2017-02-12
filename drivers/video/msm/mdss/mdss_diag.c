@@ -545,6 +545,11 @@ int mdss_diag_mipi_clkchg(struct mdp_mipi_clkchg_param * mipi_clkchg_param)
 	struct mdss_mdp_ctl *pctl;
 	struct mdss_panel_data *pdata;
 
+#ifdef CONFIG_USES_SHLCDC
+	if (ret == 0) {
+		return 0;
+	}
+#endif /* CONFIG_USES_SHLCDC */
 	pctl = mdss_diag_get_mdpctrl(0);
 	if (!pctl) {
 		pr_err("LCDERR:[%s] mdpctrl is NULL.\n", __func__);
@@ -770,7 +775,7 @@ int mdss_diag_mipi_clkchg_panel_porch_update(struct mdss_panel_data *pdata)
 	}
 
 	mdss_dsi_sw_reset(pdata);
-	mdss_dsi_host_init(mipi, pdata);
+	mdss_dsi_host_init(pdata);
 	mdss_dsi_op_mode_config(mipi->mode, pdata);
 
 	return ret;

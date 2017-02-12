@@ -73,6 +73,11 @@
 #define ECS_IOCTL_LT_THRESHOLD_WRITE        _IOW(GP2AP030IO, 0x05, unsigned short)
 #define ECS_IOCTL_HT_THRESHOLD_WRITE        _IOW(GP2AP030IO, 0x06, unsigned short)
 #define ECS_IOCTL_GET_D2_DATA       _IOR(GP2AP030IO, 0x07, unsigned short)
+/* SHARP_EXTEND Start */
+#define ECS_IOCTL_ENABLE_DIAG       _IO(GP2AP030IO, 0x08)
+#define ECS_IOCTL_DISABLE_DIAG      _IO(GP2AP030IO, 0x09)
+#define ECS_IOCTL_CALIBRATION       _IO(GP2AP030IO, 0x0A)
+/* SHARP_EXTEND End */
 
 /* ------------------------------------------------------------------------- */
 /* PROTOTYPES                                                                    */

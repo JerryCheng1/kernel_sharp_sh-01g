@@ -2835,6 +2835,9 @@ static __init int felica_init(void)
 	if( ret < 0 )
 		return ret;
 
+	//HVDD H
+	gpio_set_value(D_MVDD_GPIO_NO , 1);
+
 #ifdef CONFIG_SHSNFC
 #ifdef CONFIG_SHSNFC_BATTERY_FIXATION
 	if( gpio_get_value(D_MVDD_GPIO_NO) ) {

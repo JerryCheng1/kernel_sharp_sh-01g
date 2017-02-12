@@ -111,11 +111,13 @@ void shub_input_report_significant(int32_t *data)
 // SHMDS_HUB_0701_01 add S
     DBG_SIGNIF_DATA("data t(s)=%d, t(ns)=%d\n", data[INDEX_TM],data[INDEX_TMNS]);
 // SHMDS_HUB_0701_01 add E
-    shub_idev->sync = 0;
+    shub_input_sync_init(shub_idev); /* SHMDS_HUB_0602_01 mod */
 #if 1  // SHMDS_HUB_0601_04 mod S
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_HAT3Y, data[INDEX_TM]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_HAT3Y, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_HAT3X, data[INDEX_TMNS]);
 #else
+    SHUB_INPUT_VAL_CLEAR(shub_idev, ABS_MISC, data[INDEX_TM]); /* SHMDS_HUB_0603_01 add */ /* SHMDS_HUB_0603_02 add */
     input_report_abs(shub_idev, ABS_MISC, data[INDEX_TM]);
     input_report_abs(shub_idev, ABS_VOLUME, data[INDEX_TMNS]);
 #endif // SHMDS_HUB_0601_04 mod E

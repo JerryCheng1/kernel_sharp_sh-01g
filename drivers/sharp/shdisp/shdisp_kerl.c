@@ -68,6 +68,10 @@
 #include <asm/pgtable.h>
 #include <asm/delay.h>
 #include <asm/param.h>
+#ifdef SHDISP_ALS_INT
+#include <linux/input.h>
+#include <linux/miscdevice.h>
+#endif /* SHDISP_ALS_INT */
 
 #ifndef SHDISP_NOT_SUPPORT_DET
 void mdss_shdisp_video_transfer_ctrl(int onoff);
@@ -88,6 +92,10 @@ extern int mdss_shdisp_mdp_hr_video_resume(void);
 extern int mdss_shdisp_set_lp00_mode(int enable);
 extern int mdss_shdisp_fps_led_start(void);
 extern void mdss_shdisp_fps_led_stop(void);
+
+#ifdef CONFIG_SH_SLEEP_LOG
+#include <sharp/sh_sleeplog.h>
+#endif
 
 /* ------------------------------------------------------------------------- */
 /* MACROS                                                                    */
@@ -167,6 +175,12 @@ static struct semaphore shdisp_sem_req_recovery_psals;
 static unsigned int shdisp_recovery_psals_queued_flag;
 static struct work_struct         shdisp_wq_recovery_psals_wk;
 
+#ifdef SHDISP_ALS_INT
+static struct wake_lock shdisp_timeout_wake_lock;
+static struct input_dev *shdisp_input_dev;
+static int als_int_enable = 0;
+#endif /* SHDISP_ALS_INT */
+
 #ifdef SHDISP_TRI_LED2
 static spinlock_t               shdisp_swic_spinlock;
 static struct workqueue_struct  *shdisp_wq_pierce;
@@ -235,6 +249,11 @@ static int shdisp_ioctl_get_sp_pierce_state(void __user *argp);
 #endif  /* SHDISP_TRI_LED2 */
 static int shdisp_ioctl_set_irq_mask(void __user *argp);
 static int shdisp_ioctl_vcom_tracking(void __user * argp);
+#ifdef SHDISP_ALS_INT
+static int shdisp_ioctl_set_alsint(void __user *argp);
+static int shdisp_ioctl_get_alsint(void __user *argp);
+static int shdisp_ioctl_get_light_info(void __user *argp);
+#endif /* SHDISP_ALS_INT */
 
 static int shdisp_SQE_main_lcd_power_on(void);
 static int shdisp_SQE_main_lcd_power_off(void);
@@ -280,6 +299,12 @@ static int shdisp_SQE_get_ave_ado(struct shdisp_ave_ado *ave_ado);
 static int  shdisp_SQE_psals_read_reg(struct shdisp_diag_psals_reg *psals_reg);
 static int  shdisp_SQE_psals_write_reg(struct shdisp_diag_psals_reg *psals_reg);
 static int shdisp_SQE_get_als(struct shdisp_photo_sensor_raw_val *val);
+#ifdef SHDISP_ALS_INT
+static int shdisp_SQE_set_alsint(struct shdisp_photo_sensor_int_trigger *val);
+static int shdisp_SQE_get_alsint(struct shdisp_photo_sensor_int_trigger *val);
+static int shdisp_SQE_get_light_info(struct shdisp_light_info *val);
+#endif /* SHDISP_ALS_INT */
+
 #ifdef SHDISP_TRI_LED2
 static int shdisp_SQE_tri_led_set_color2(struct shdisp_tri_led *tri_led);
 static int shdisp_SQE_insert_sp_pierce(void);
@@ -293,6 +318,7 @@ static int shdisp_SQE_psals_recovery(void);
 static irqreturn_t shdisp_gpio_int_isr( int irq_num, void *data );
 static void shdisp_workqueue_handler_gpio(struct work_struct *work);
 static void shdisp_workqueue_gpio_task(struct work_struct *work);
+static int shdisp_do_detin_recovery(void);
 static void shdisp_wake_lock_init(void);
 static void shdisp_wake_lock(void);
 static void shdisp_wake_unlock(void);
@@ -309,6 +335,12 @@ static void shdisp_workqueue_handler_recovery_lcd(struct work_struct *work);
 static void shdisp_lcd_det_recovery(void);
 static int shdisp_lcd_det_recovery_subscribe(void);
 static int shdisp_lcd_det_recovery_unsubscribe(void);
+#ifdef SHDISP_ALS_INT
+static int shdisp_do_als_int_report(int ginf2_val);
+static void shdisp_do_als_int_report_dummy(void);
+static int shdisp_set_als_int_subscribe(int trigger);
+static int shdisp_set_als_int_unsubscribe(int trigger);
+#endif /* SHDISP_ALS_INT */
 static int shdisp_do_psals_recovery(void);
 static void shdisp_workqueue_handler_recovery_psals(struct work_struct *work);
 static void shdisp_psals_recovery(void);
@@ -329,6 +361,10 @@ static void callback_ps(void);
 static void shdisp_fb_open(void);
 static void shdisp_fb_close(void);
 static void shdisp_boot_err_output(void);
+#ifdef SHDISP_ALS_INT
+static int shdisp_input_subsystem_init(void);
+static int shdisp_input_subsystem_report(int val);
+#endif /* SHDISP_ALS_INT */
 
 static struct file_operations shdisp_fops = {
     .owner          = THIS_MODULE,
@@ -1676,6 +1712,17 @@ static long shdisp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     case SHDISP_IOCTL_VCOM_TRACKING:
         ret = shdisp_ioctl_vcom_tracking(argp);
         break;
+#ifdef SHDISP_ALS_INT
+    case SHDISP_IOCTL_SET_ALSINT:
+        ret = shdisp_ioctl_set_alsint(argp);
+        break;
+    case SHDISP_IOCTL_GET_ALSINT:
+        ret = shdisp_ioctl_get_alsint(argp);
+        break;
+    case SHDISP_IOCTL_GET_LIGHT_INFO:
+        ret = shdisp_ioctl_get_light_info(argp);
+        break;
+#endif /* SHDISP_ALS_INT */
     default:
         SHDISP_ERR("<INVALID_VALUE> cmd(0x%08x).", cmd);
         ret = -EFAULT;
@@ -2872,6 +2919,123 @@ static int shdisp_ioctl_vcom_tracking(void __user *argp)
     return SHDISP_RESULT_SUCCESS;
 }
 
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_ioctl_set_alsint                                                   */
+/* ------------------------------------------------------------------------- */
+static int shdisp_ioctl_set_alsint(void __user *argp)
+{
+    int ret;
+    struct shdisp_photo_sensor_int_trigger val;
+
+    if (shdisp_check_bdic_exist() != SHDISP_RESULT_SUCCESS) {
+        SHDISP_DEBUG("bdic is not exist");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    if (shdisp_kerl_ctx.shutdown_in_progress) {
+        SHDISP_DEBUG("canceled: set_alsint is in progress");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    shdisp_semaphore_start();
+    ret = copy_from_user(&val, argp, sizeof(struct shdisp_photo_sensor_int_trigger));
+    if (ret != 0) {
+        SHDISP_ERR("<RESULT_FAILURE> copy_from_user.");
+        shdisp_semaphore_end(__func__);
+        return ret;
+    }
+
+    ret = shdisp_SQE_set_alsint(&val);
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        SHDISP_ERR("<RESULT_FAILURE> shdisp_SQE_set_alsint.");
+    }
+
+    ret = copy_to_user(argp, &val, sizeof(struct shdisp_photo_sensor_int_trigger));
+    shdisp_semaphore_end(__func__);
+
+    if (ret != 0) {
+        SHDISP_ERR("<RESULT_FAILURE> copy_to_user.");
+        return ret;
+    }
+    return SHDISP_RESULT_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_ioctl_get_alsint                                                   */
+/* ------------------------------------------------------------------------- */
+static int shdisp_ioctl_get_alsint(void __user *argp)
+{
+    int ret;
+    struct shdisp_photo_sensor_int_trigger val;
+
+    if (shdisp_check_bdic_exist() != SHDISP_RESULT_SUCCESS) {
+        SHDISP_DEBUG("bdic is not exist");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    if (shdisp_kerl_ctx.shutdown_in_progress) {
+        SHDISP_DEBUG("canceled: get_alsint is in progress");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    shdisp_semaphore_start();
+    ret = copy_from_user(&val, argp, sizeof(struct shdisp_photo_sensor_int_trigger));
+    if (ret != 0) {
+        SHDISP_ERR("<RESULT_FAILURE> copy_from_user.");
+        shdisp_semaphore_end(__func__);
+        return ret;
+    }
+
+    ret = shdisp_SQE_get_alsint(&val);
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        SHDISP_ERR("<RESULT_FAILURE> shdisp_SQE_get_alsint.");
+    }
+
+    ret = copy_to_user(argp, &val, sizeof(struct shdisp_photo_sensor_int_trigger));
+    shdisp_semaphore_end(__func__);
+
+    if (ret != 0) {
+        SHDISP_ERR("<RESULT_FAILURE> copy_to_user.");
+        return ret;
+    }
+    return SHDISP_RESULT_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_ioctl_get_light_info                                               */
+/* ------------------------------------------------------------------------- */
+static int shdisp_ioctl_get_light_info(void __user *argp)
+{
+    int ret;
+    struct shdisp_light_info val;
+
+    if (shdisp_check_bdic_exist() != SHDISP_RESULT_SUCCESS) {
+        SHDISP_DEBUG("bdic is not exist");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    if (shdisp_kerl_ctx.shutdown_in_progress) {
+        SHDISP_DEBUG("canceled: get_light_info is in progress");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    shdisp_semaphore_start();
+    ret = shdisp_SQE_get_light_info(&val);
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        SHDISP_ERR("<RESULT_FAILURE> shdisp_SQE_get_light_info.");
+    }
+
+    ret = copy_to_user(argp, &val, sizeof(struct shdisp_light_info));
+    shdisp_semaphore_end(__func__);
+
+    if (ret != 0) {
+        SHDISP_ERR("<RESULT_FAILURE> copy_to_user.");
+        return ret;
+    }
+    return SHDISP_RESULT_SUCCESS;
+}
+#endif /* SHDISP_ALS_INT */
 
 /* ------------------------------------------------------------------------- */
 /* SEQUENCE                                                                  */
@@ -2962,6 +3126,10 @@ static int shdisp_SQE_main_lcd_start_display(void)
     shterm_k_set_info(SHTERM_INFO_LCDPOW, 1);
 #endif  /* CONFIG_SHTERM */
 
+#ifdef CONFIG_SH_SLEEP_LOG
+    sh_set_screen_state_without_time(shdisp_kerl_ctx.main_disp_status);
+#endif
+
     SHDISP_TRACE("out ret=%04x", ret);
     return ret;
 }
@@ -3028,6 +3196,10 @@ static int shdisp_SQE_main_lcd_disp_off(void)
 #ifdef CONFIG_SHTERM
     shterm_k_set_info(SHTERM_INFO_LCDPOW, 0);
 #endif  /* CONFIG_SHTERM */
+
+#ifdef CONFIG_SH_SLEEP_LOG
+    sh_set_screen_state_without_time(shdisp_kerl_ctx.main_disp_status);
+#endif
 
     SHDISP_TRACE("out");
     return SHDISP_RESULT_SUCCESS;
@@ -3570,7 +3742,7 @@ static int shdisp_SQE_get_als(struct shdisp_photo_sensor_raw_val *raw_val)
     ret = shdisp_bdic_API_PHOTO_SENSOR_get_raw_als(&(raw_val->clear), &(raw_val->ir));
 
     if (ret != SHDISP_RESULT_SUCCESS) {
-        SHDISP_ERR("<RESULT_FAILURE> shdisp_bdic_API_PHOTO_SENSOR_get_lux.");
+        SHDISP_ERR("<RESULT_FAILURE> shdisp_bdic_API_PHOTO_SENSOR_get_raw_als.");
         raw_val->result = SHDISP_RESULT_FAILURE;
     } else {
         raw_val->result = SHDISP_RESULT_SUCCESS;
@@ -3578,6 +3750,67 @@ static int shdisp_SQE_get_als(struct shdisp_photo_sensor_raw_val *raw_val)
 
     return ret;
 }
+
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_SQE_set_alsint                                                     */
+/* ------------------------------------------------------------------------- */
+static int shdisp_SQE_set_alsint(struct shdisp_photo_sensor_int_trigger *val)
+{
+    int ret;
+    int trigger = 0;
+
+    ret = shdisp_bdic_API_PHOTO_SENSOR_set_alsint(val);
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        SHDISP_ERR("<RESULT_FAILURE> shdisp_bdic_API_PHOTO_SENSOR_set_alsint.");
+    }
+
+    if (val->result == SHDISP_RESULT_SUCCESS) {
+        if (val->trigger1.enable | val->trigger2.enable) {
+            if (val->trigger1.enable) {
+                trigger = trigger | SHDISP_OPT_CHANGE_INT_1;
+            }
+            if (val->trigger2.enable) {
+                trigger = trigger | SHDISP_OPT_CHANGE_INT_2;
+            }
+            SHDISP_DEBUG("<OTHER>als int is enable");
+            shdisp_set_als_int_subscribe(trigger);
+        } else {
+            SHDISP_DEBUG("<OTHER>als int is disable");
+            shdisp_set_als_int_unsubscribe(SHDISP_OPT_CHANGE_INT_1 | SHDISP_OPT_CHANGE_INT_2);
+        }
+    }
+    return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_SQE_get_alsint                                                     */
+/* ------------------------------------------------------------------------- */
+static int shdisp_SQE_get_alsint(struct shdisp_photo_sensor_int_trigger *val)
+{
+    int ret;
+
+    ret = shdisp_bdic_API_PHOTO_SENSOR_get_alsint(val);
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        SHDISP_ERR("<RESULT_FAILURE> shdisp_bdic_API_PHOTO_SENSOR_get_alsint.");
+    }
+    return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_SQE_get_light_info                                                 */
+/* ------------------------------------------------------------------------- */
+static int shdisp_SQE_get_light_info(struct shdisp_light_info *val)
+{
+    int ret;
+
+    ret = shdisp_bdic_API_PHOTO_SENSOR_get_light_info(val);
+    if (ret != SHDISP_RESULT_SUCCESS) {
+        SHDISP_ERR("<RESULT_FAILURE> shdisp_bdic_API_PHOTO_SENSOR_get_light_info.");
+    }
+    return ret;
+}
+#endif /* SHDISP_ALS_INT */
 
 /* ------------------------------------------------------------------------- */
 /* shdisp_SQE_write_bdic_i2c                                                 */
@@ -3628,6 +3861,13 @@ static int shdisp_SQE_photo_sensor_pow_ctl(struct shdisp_photo_sensor_power_ctl 
 
     ret = shdisp_bdic_API_als_sensor_pow_ctl(ctl->type, ctl->power);
     if (ret != SHDISP_RESULT_SUCCESS) {
+#ifdef SHDISP_ALS_INT
+        if (ret == SHDISP_RESULT_ALS_INT_OFF) {
+            SHDISP_DEBUG("<OTHER>als int is disable");
+            shdisp_set_als_int_unsubscribe(SHDISP_OPT_CHANGE_INT_1 | SHDISP_OPT_CHANGE_INT_2);
+            return SHDISP_RESULT_SUCCESS;
+        }
+#endif /* SHDISP_ALS_INT */
         SHDISP_ERR("<RESULT_FAILURE> shdisp_bdic_API_als_sensor_pow_ctl.");
         return SHDISP_RESULT_FAILURE;
     }
@@ -4496,11 +4736,7 @@ static void shdisp_workqueue_gpio_task(struct work_struct *work)
     int     nFirst_GFAC = -1;
     int     bFirst = 0;
     int     bThrough = 0;
-    int     ret;
     void (*temp_callback)(void);
-#ifdef SHDISP_RESET_LOG
-    struct shdisp_dbg_error_code err_code;
-#endif /* SHDISP_RESET_LOG */
 
     SHDISP_TRACE("Start");
 
@@ -4511,7 +4747,7 @@ static void shdisp_workqueue_gpio_task(struct work_struct *work)
         bFirst = 0;
         nFirstBDIC_GFAC = 0;
         list_for_each(listptr, &shdisp_queue_data.list) {
-            entry = list_entry( listptr, struct shdisp_queue_data_t, list);
+            entry = list_entry(listptr, struct shdisp_queue_data_t, list);
             if (bFirst == 0) {
                 entryFirst = entry;
                 nFirstBDIC_GFAC = entry->irq_GFAC;
@@ -4561,30 +4797,28 @@ static void shdisp_workqueue_gpio_task(struct work_struct *work)
                     } else {
                         SHDISP_DEBUG("Callback is Nulle pointer(irq_type=%d)", nFirst_GFAC);
                     }
-                } else if (nFirstBDIC_GFAC == SHDISP_BDIC_IRQ_TYPE_DET) {
-                    SHDISP_DEBUG("enable_irq for DET before");
-                    shdisp_semaphore_start();
-                    ret = shdisp_bdic_API_RECOVERY_check_restoration();
-                    shdisp_semaphore_end(__func__);
-                    if (ret == SHDISP_RESULT_FAILURE) {
-                        SHDISP_ERR("lcd det bdic");
-#ifdef SHDISP_RESET_LOG
-                        err_code.mode = SHDISP_DBG_MODE_LINUX;
-                        err_code.type = SHDISP_DBG_TYPE_PANEL;
-                        err_code.code = SHDISP_DBG_CODE_ERROR_DETECT;
-                        err_code.subcode = SHDISP_DBG_SUBCODE_ESD_DETIN;
-                        shdisp_dbg_API_err_output(&err_code, 0);
-                        shdisp_dbg_API_set_subcode(SHDISP_DBG_SUBCODE_ESD_DETIN);
-#endif /* SHDISP_RESET_LOG */
-                        shdisp_do_lcd_det_recovery();
-                    } else {
-                        SHDISP_DEBUG("lcd det bdic detects the false");
-                        shdisp_bdic_API_IRQ_det_irq_ctrl(true);
+                } else {
+                    switch (nFirstBDIC_GFAC) {
+                    case SHDISP_BDIC_IRQ_TYPE_DET:
+                        shdisp_do_detin_recovery();
+                        break;
+                    case SHDISP_BDIC_IRQ_TYPE_I2C_ERR:
+                        shdisp_do_psals_recovery();
+                        break;
+#ifdef SHDISP_ALS_INT
+                    case SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER:
+                        shdisp_do_als_int_report(SHDISP_OPT_CHANGE_INT_1 | SHDISP_OPT_CHANGE_INT_2);
+                        break;
+                    case SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER1:
+                        shdisp_do_als_int_report(SHDISP_OPT_CHANGE_INT_1);
+                        break;
+                    case SHDISP_BDIC_IRQ_TYPE_ALS_TRIGGER2:
+                        shdisp_do_als_int_report(SHDISP_OPT_CHANGE_INT_2);
+                        break;
+#endif /* SHDISP_ALS_INT */
+                    default:
+                        break;
                     }
-                    SHDISP_DEBUG("enable_irq for DET after");
-                    shdisp_SYS_API_set_irq(SHDISP_IRQ_ENABLE);
-                } else if (nFirstBDIC_GFAC == SHDISP_BDIC_IRQ_TYPE_I2C_ERR) {
-                    shdisp_do_psals_recovery();
                 }
             }
         } else {
@@ -4597,6 +4831,41 @@ static void shdisp_workqueue_gpio_task(struct work_struct *work)
     shdisp_wake_unlock();
 
     return;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_do_detin_recovery                                                  */
+/* ------------------------------------------------------------------------- */
+static int shdisp_do_detin_recovery(void)
+{
+    int ret;
+#ifdef SHDISP_RESET_LOG
+    struct shdisp_dbg_error_code err_code;
+#endif /* SHDISP_RESET_LOG */
+
+    SHDISP_DEBUG("enable_irq for DET before");
+    shdisp_semaphore_start();
+    ret = shdisp_bdic_API_RECOVERY_check_restoration();
+    shdisp_semaphore_end(__func__);
+    if (ret == SHDISP_RESULT_FAILURE) {
+        SHDISP_ERR("lcd det bdic");
+#ifdef SHDISP_RESET_LOG
+        err_code.mode = SHDISP_DBG_MODE_LINUX;
+        err_code.type = SHDISP_DBG_TYPE_PANEL;
+        err_code.code = SHDISP_DBG_CODE_ERROR_DETECT;
+        err_code.subcode = SHDISP_DBG_SUBCODE_ESD_DETIN;
+        shdisp_dbg_API_err_output(&err_code, 0);
+        shdisp_dbg_API_set_subcode(SHDISP_DBG_SUBCODE_ESD_DETIN);
+#endif /* SHDISP_RESET_LOG */
+        shdisp_do_lcd_det_recovery();
+    } else {
+        SHDISP_DEBUG("lcd det bdic detects the false");
+        shdisp_bdic_API_IRQ_det_irq_ctrl(true);
+    }
+    SHDISP_DEBUG("enable_irq for DET after");
+    shdisp_SYS_API_set_irq(SHDISP_IRQ_ENABLE);
+
+    return SHDISP_RESULT_SUCCESS;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -4951,6 +5220,93 @@ static int shdisp_lcd_det_recovery_unsubscribe(void)
     return ret;
 }
 
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_do_als_int_report                                                  */
+/* ------------------------------------------------------------------------- */
+static int shdisp_do_als_int_report(int ginf2_val)
+{
+    SHDISP_TRACE("in");
+
+    if(ginf2_val != 0) {
+        shdisp_input_subsystem_report(ginf2_val);
+        shdisp_set_als_int_unsubscribe(ginf2_val);
+    }
+
+    SHDISP_TRACE("out");
+    return SHDISP_RESULT_SUCCESS;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_do_als_int_report_dummy                                            */
+/* ------------------------------------------------------------------------- */
+static void shdisp_do_als_int_report_dummy(void)
+{
+    return;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_set_als_int_subscribe                                              */
+/* ------------------------------------------------------------------------- */
+static int shdisp_set_als_int_subscribe(int trigger)
+{
+    int ret = 0;
+    struct shdisp_subscribe alsint_subs;
+    int before_flag = als_int_enable;
+
+    SHDISP_TRACE("in");
+
+    if (trigger == 0) {
+        SHDISP_ERR("trigger zero");
+        return SHDISP_RESULT_FAILURE;
+    }
+
+    als_int_enable = (als_int_enable | trigger) & (SHDISP_OPT_CHANGE_INT_1 | SHDISP_OPT_CHANGE_INT_2);
+    if (before_flag != 0) {
+        SHDISP_DEBUG("<caution>double subscribe");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    alsint_subs.irq_type = SHDISP_IRQ_TYPE_ALS;
+    alsint_subs.callback = shdisp_do_als_int_report_dummy;
+    ret = shdisp_event_subscribe(&alsint_subs);
+
+    SHDISP_TRACE("out ret=%04x", ret);
+    return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_set_als_int_unsubscribe                                            */
+/* ------------------------------------------------------------------------- */
+static int shdisp_set_als_int_unsubscribe(int trigger)
+{
+    int ret = 0;
+
+    SHDISP_TRACE("in");
+
+    if (trigger == 0) {
+        SHDISP_ERR("trigger zero");
+        return SHDISP_RESULT_FAILURE;
+    }
+
+    if (als_int_enable == 0) {
+        SHDISP_DEBUG("<caution>double unsubscribe");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    als_int_enable = (als_int_enable & (~trigger)) & (SHDISP_OPT_CHANGE_INT_1 | SHDISP_OPT_CHANGE_INT_2);
+    if (als_int_enable == 0) {
+        ret = shdisp_event_unsubscribe(SHDISP_IRQ_TYPE_ALS);
+    } else {
+        SHDISP_DEBUG("<caution>double unsubscribe");
+        return SHDISP_RESULT_SUCCESS;
+    }
+
+    SHDISP_TRACE("out ret=%04x", ret);
+    return ret;
+}
+#endif /* SHDISP_ALS_INT */
+
 /* ------------------------------------------------------------------------- */
 /* shdisp_do_psals_recovery                                                  */
 /* ------------------------------------------------------------------------- */
@@ -5049,7 +5405,7 @@ static void shdisp_psals_recovery(void)
 }
 
 /* ------------------------------------------------------------------------- */
-/* shdisp_event_subscribe                                                */
+/* shdisp_event_subscribe                                                    */
 /* ------------------------------------------------------------------------- */
 static int shdisp_event_subscribe(struct shdisp_subscribe *subscribe)
 {
@@ -5070,11 +5426,6 @@ static int shdisp_event_subscribe(struct shdisp_subscribe *subscribe)
         }
     }
 
-    if ((subscribe->irq_type == SHDISP_IRQ_TYPE_ALS) &&
-        (shdisp_subscribe_type_table[subscribe->irq_type] == SHDISP_SUBSCRIBE_TYPE_INT)) {
-        return SHDISP_RESULT_FAILURE;
-    }
-
     ret = shdisp_SQE_event_subscribe(subscribe);
 
     if (ret != SHDISP_RESULT_SUCCESS) {
@@ -5089,7 +5440,7 @@ static int shdisp_event_subscribe(struct shdisp_subscribe *subscribe)
 }
 
 /* ------------------------------------------------------------------------- */
-/* shdisp_event_unsubscribe                                              */
+/* shdisp_event_unsubscribe                                                  */
 /* ------------------------------------------------------------------------- */
 static int shdisp_event_unsubscribe(int irq_type)
 {
@@ -5098,10 +5449,6 @@ static int shdisp_event_unsubscribe(int irq_type)
     SHDISP_PERFORMANCE("RESUME PANEL EVENT-UNSUBSCRIBE 0010 START");
 
     if (shdisp_bdic_unsubscribe_check(irq_type) != SHDISP_RESULT_SUCCESS) {
-        return SHDISP_RESULT_FAILURE;
-    }
-
-    if ((irq_type == SHDISP_IRQ_TYPE_ALS) && (shdisp_subscribe_type_table[irq_type] == SHDISP_SUBSCRIBE_TYPE_INT)) {
         return SHDISP_RESULT_FAILURE;
     }
 
@@ -5516,6 +5863,15 @@ static int shdisp_proc_write(struct file *file, const char *buffer, unsigned lon
 
         shdisp_dbg_API_set_recovery_check_error(recovery_error_flag, recovery_error_count);
         break;
+
+#ifdef SHDISP_ALS_INT
+    case 70:
+        val = shdisp_pfs.par[0];
+        SHDISP_DEBUG("value    : %X", val);
+        ret = shdisp_input_subsystem_report(val);
+        SHDISP_DEBUG("ret    : %d\n", ret);
+        break;
+#endif /* SHDISP_ALS_INT */
 
     case SHDISP_DEBUG_DSI_WRITE:
         panel_reg.size = param[0];
@@ -6250,6 +6606,55 @@ static void shdisp_boot_err_output(void)
 #endif /* SHDISP_RESET_LOG */
 }
 
+#ifdef SHDISP_ALS_INT
+/* ------------------------------------------------------------------------- */
+/* shdisp_input_subsystem_init                                               */
+/* ------------------------------------------------------------------------- */
+static int shdisp_input_subsystem_init(void)
+{
+    int ret;
+
+    wake_lock_init(&shdisp_timeout_wake_lock, WAKE_LOCK_SUSPEND, "shdisp_timeout_wake_lock");
+
+    shdisp_input_dev = input_allocate_device();
+    if (!shdisp_input_dev) {
+        SHDISP_ERR("could not allocate input device\n");
+        ret = -ENOMEM;
+    }
+
+    shdisp_input_dev->name = "als_interrupt";
+    set_bit(EV_ABS, shdisp_input_dev->evbit);
+    input_set_abs_params(shdisp_input_dev, ABS_MISC, 0, 9, 0, 0);
+
+    ret = input_register_device(shdisp_input_dev);
+    if (ret < 0){
+        SHDISP_ERR("can not register ls input device\n");
+        input_free_device(shdisp_input_dev);
+    }
+    return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_input_subsystem_report                                             */
+/* ------------------------------------------------------------------------- */
+static int shdisp_input_subsystem_report(int val)
+{
+    int ret = 0;
+    SHDISP_TRACE("in");
+
+    wake_lock_timeout(&shdisp_timeout_wake_lock, 1 * HZ);
+
+    input_report_abs(shdisp_input_dev, ABS_MISC, val);
+    input_sync(shdisp_input_dev);
+
+    input_report_abs(shdisp_input_dev, ABS_MISC, 0x00);
+    input_sync(shdisp_input_dev);
+
+    SHDISP_TRACE("out");
+    return ret;
+}
+#endif /* SHDISP_ALS_INT */
+
 /* ------------------------------------------------------------------------- */
 /* shdisp_init                                                               */
 /* ------------------------------------------------------------------------- */
@@ -6479,6 +6884,10 @@ static int __init shdisp_init(void)
     shterm_k_set_info(SHTERM_INFO_BACKLIGHT_LEV, notify_brightness);
 #endif  /* CONFIG_SHTERM */
 
+#ifdef SHDISP_ALS_INT
+    shdisp_input_subsystem_init();
+#endif /* SHDISP_ALS_INT */
+
     return SHDISP_RESULT_SUCCESS;
 
 shdisp_err_top:
@@ -6546,6 +6955,10 @@ static void shdisp_exit(void)
     lux_change_wait_flg = SHDISP_LUX_CHANGE_STATE_EXIT;
     complete(&lux_change_notify);
 
+#ifdef SHDISP_ALS_INT
+    wake_unlock(&shdisp_timeout_wake_lock);
+    wake_lock_destroy(&shdisp_timeout_wake_lock);
+#endif /* SHDISP_ALS_INT */
     wake_lock_destroy(&shdisp_wake_lock_wq);
 
     shdisp_SYS_API_Host_control(SHDISP_HOST_CTL_CMD_LCD_CLK_EXIT, 0);

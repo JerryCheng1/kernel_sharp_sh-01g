@@ -21,6 +21,18 @@
 #include "shub_io.h"
 #include "ml630q790.h"
 
+/* SHMDS_HUB_0110_01 add S */
+#ifdef SHUB_SW_PINCTRL
+#include <linux/pinctrl/consumer.h>
+#include <linux/pinctrl/pinconf-generic.h>
+#include <linux/of_gpio.h>
+#include <linux/of_device.h>
+#else
+#include <linux/qpnp/pin.h>
+#include <asm/gpio.h>
+#endif
+/* SHMDS_HUB_0110_01 add E */
+
 //-------------------------------------------------------------------
 // #define
 //-------------------------------------------------------------------
@@ -66,6 +78,24 @@
 // [COM5] Step Detector
 #define PEDOM_MAX       1000000
 #define PEDOM_MIN       0
+
+/* SHMDS_HUB_0110_01 add S */
+#define SHUB_GPIO_RESET_NAME "shub_reset"
+#define SHUB_GPIO_REMP_NAME  "shub_remap"
+#define SHUB_GPIO_INT0_NAME  "shub_hostif_int0"
+#define SHUB_GPIO_INT1_NAME  "shub_hostif_int1"
+
+#ifndef SHUB_SW_PINCTRL
+#define SHUB_GPIO_RST     qpnp_pin_map("pm8941-gpio", 9) /* SHMDS_HUB_0104_03 mod */
+#define SHUB_GPIO_REMP    (80)                           /* SHMDS_HUB_0104_04 mod */
+#define SHUB_GPIO_INT0    (66)                           /* SHMDS_HUB_0104_02 mod */
+#define SHUB_GPIO_INT1    (68)
+//#define SHUB_GPIO_RST     (93)
+//#define SHUB_GPIO_REMP    (94)
+//#define SHUB_GPIO_INT0    (75)
+//#define SHUB_GPIO_INT1    (76)
+#endif
+/* SHMDS_HUB_0110_01 add S */
 
 //-------------------------------------------------------------------
 // enum
@@ -116,6 +146,16 @@ static int shub_packet_size[SHUB_COM_MAXNUM] ={
                                  (( LOGGING_RAM_SIZE / ( DATA_SIZE_GAMERV    + 1)) * 2),
                                  (( LOGGING_RAM_SIZE / ( DATA_SIZE_PEDOCNT   + 1)) * 2)
                                };
+
+/* SHMDS_HUB_0110_01 add S */
+#ifdef SHUB_SW_PINCTRL
+static struct spi_device *client_mcu;
+static unsigned int shub_gpio_no_reset = 0;
+static unsigned int shub_gpio_no_brmp = 0;
+static unsigned int shub_gpio_no_int0 = 0;
+static unsigned int shub_gpio_no_int1 = 0;
+#endif
+/* SHMDS_HUB_0110_01 add E */
 
 static int shub_com_get_input_no(int inp_type)
 {
@@ -173,6 +213,7 @@ static void shub_com_set_abs_params(int no)
         input_set_abs_params(shub_idev[no], ABS_Y, MAGUNC_MIN, MAGUNC_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_Z, MAGUNC_MIN, MAGUNC_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_HAT0Y, 0, 0xFF, 0, 0);
+        shub_set_param_first(shub_idev[no]); /* SHMDS_HUB_0308_01 add */
         break;
         
     case SHUB_COM_INPUT2:
@@ -193,6 +234,7 @@ static void shub_com_set_abs_params(int no)
         input_set_abs_params(shub_idev[no], ABS_X, GYROUNC_MIN, GYROUNC_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_Y, GYROUNC_MIN, GYROUNC_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_Z, GYROUNC_MIN, GYROUNC_MAX, 0, 0);
+        shub_set_param_first(shub_idev[no]); /* SHMDS_HUB_0308_01 add */
         break;
         
     case SHUB_COM_INPUT3:
@@ -208,6 +250,7 @@ static void shub_com_set_abs_params(int no)
         input_set_abs_params(shub_idev[no], ABS_RX, LINEACC_MIN, LINEACC_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_RY, LINEACC_MIN, LINEACC_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_RZ, LINEACC_MIN, LINEACC_MAX, 0, 0);
+        shub_set_param_first(shub_idev[no]); /* SHMDS_HUB_0308_01 add */
         break;
         
     case SHUB_COM_INPUT4:
@@ -226,6 +269,7 @@ static void shub_com_set_abs_params(int no)
         input_set_abs_params(shub_idev[no], ABS_RZ, MAGROT_MIN, MAGROT_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_HAT0Y, MAGROT_MIN, MAGROT_MAX, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_HAT0X, 0, 0xFF, 0, 0);
+        shub_set_param_first(shub_idev[no]); /* SHMDS_HUB_0308_01 add */
         break;
         
     case SHUB_COM_INPUT5:
@@ -241,6 +285,7 @@ static void shub_com_set_abs_params(int no)
         input_set_abs_params(shub_idev[no], ABS_HAT2Y, 0, 0xFFFFFFFF, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_HAT2X, 0, 0xFFFFFFFF, 0, 0);
         input_set_abs_params(shub_idev[no], ABS_Z, PEDOM_MIN, PEDOM_MAX, 0, 0);
+        shub_set_param_first(shub_idev[no]); /* SHMDS_HUB_0308_01 add */
         break;
         
     default:
@@ -330,4 +375,287 @@ void shub_com_unregister_device(int inp_type)
     }
     return;
 }
+
+/* SHMDS_HUB_0110_01 add S */
+int shub_set_gpio_no( struct spi_device *client )
+{
+#ifdef SHUB_SW_PINCTRL
+    struct device_node *np = client->dev.of_node;
+    
+    client_mcu = client;
+    shub_gpio_no_reset = of_get_named_gpio(np, "qcom,shub-gpio-reset", 0);
+    shub_gpio_no_brmp  = of_get_named_gpio(np, "qcom,shub-gpio-brmp",  0);
+    shub_gpio_no_int0  = of_get_named_gpio(np, "qcom,shub-gpio-int0",  0);
+    shub_gpio_no_int1  = of_get_named_gpio(np, "qcom,shub-gpio-int1",  0);
+    printk("[shub]shub_set_gpio_no: %ld, %ld, %ld, %ld\n", (long)shub_gpio_no_reset, (long)shub_gpio_no_brmp, (long)shub_gpio_no_int0, (long)shub_gpio_no_int1);
+#endif
+    return 0;
+}
+
+int shub_get_gpio_no(int gpio)
+{
+    int gpio_no = -1;
+#ifdef SHUB_SW_PINCTRL
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        gpio_no = shub_gpio_no_reset;
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        gpio_no = shub_gpio_no_brmp;
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        gpio_no = shub_gpio_no_int0;
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        gpio_no = shub_gpio_no_int1;
+        break;
+    default:
+        break;
+    }
+#else
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        gpio_no = SHUB_GPIO_RST;
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        gpio_no = SHUB_GPIO_REMP;
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        gpio_no = SHUB_GPIO_INT0;
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        gpio_no = SHUB_GPIO_INT1;
+        break;
+    default:
+        break;
+    }
+#endif
+    return gpio_no;
+}
+
+int shub_gpio_request(int gpio)
+{
+    int ret = 0;  // SHMDS_HUB_0110_03 mod
+#ifdef SHUB_SW_PINCTRL
+    struct pinctrl_state *pin_state = NULL;
+    struct pinctrl *pin;
+    int gpio_no;  // SHMDS_HUB_0110_03 add
+    
+    gpio_no = shub_get_gpio_no(gpio);  // SHMDS_HUB_0110_03 add
+    pin = devm_pinctrl_get(&client_mcu->dev);
+    
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        ret = gpio_request(gpio_no, SHUB_GPIO_RESET_NAME); /* SHMDS_HUB_0110_03 add */
+        pin_state = pinctrl_lookup_state(pin, "shub_reset_active");
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        ret = gpio_request(gpio_no, SHUB_GPIO_REMP_NAME);  /* SHMDS_HUB_0110_03 add */
+        pin_state = pinctrl_lookup_state(pin, "shub_brmp_active");
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        ret = gpio_request(gpio_no, SHUB_GPIO_INT0_NAME);  /* SHMDS_HUB_0110_05 add */
+        pin_state = pinctrl_lookup_state(pin, "shub_int0_active");
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        ret = gpio_request(gpio_no, SHUB_GPIO_INT1_NAME);  /* SHMDS_HUB_0110_05 add */
+        pin_state = pinctrl_lookup_state(pin, "shub_int1_active");
+        break;
+    default:
+        break;
+    }
+    
+    // SHMDS_HUB_0110_03 add S
+    if (ret < 0){
+        printk("[shub]shub_gpio_request: gpio_request error(gpio %d, ret=%d)", gpio, ret);
+        return -1;
+    }
+    // SHMDS_HUB_0110_03 add E
+    
+    if(pin_state == NULL){
+        printk("[shub]shub_gpio_request: Null error(gpio %d)", gpio);
+        return -1;
+    }
+    
+    ret = pinctrl_select_state(pin, pin_state);
+    if(ret){
+        printk("[shub]shub_gpio_request: error(gpio %d, ret=%d)", gpio, ret);
+        return ret;
+    }
+#else
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        ret = gpio_request(SHUB_GPIO_RST, SHUB_GPIO_RESET_NAME);
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        ret = gpio_request(SHUB_GPIO_REMP, SHUB_GPIO_REMP_NAME);
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        ret = gpio_request(SHUB_GPIO_INT0, SHUB_GPIO_INT0_NAME);
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        ret = gpio_request(SHUB_GPIO_INT1, SHUB_GPIO_INT1_NAME);
+        break;
+    default:
+        break;
+    }
+#endif
+    return 0;
+}
+
+int shub_gpio_free(int gpio)
+{
+#ifdef SHUB_SW_PINCTRL
+    struct pinctrl_state *pin_state = NULL;
+    struct pinctrl *pin;
+    int ret;
+    int gpio_no;  // SHMDS_HUB_0110_03 add
+    
+    gpio_no = shub_get_gpio_no(gpio);   // SHMDS_HUB_0110_03 add
+    pin = devm_pinctrl_get(&client_mcu->dev);
+    
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        pin_state = pinctrl_lookup_state(pin, "shub_reset_suspend");
+        gpio_free(gpio_no);  /* SHMDS_HUB_0110_03 add */
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        pin_state = pinctrl_lookup_state(pin, "shub_brmp_suspend");
+        gpio_free(gpio_no);  /* SHMDS_HUB_0110_03 add */
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        pin_state = pinctrl_lookup_state(pin, "shub_int0_suspend");
+        gpio_free(gpio_no);  /* SHMDS_HUB_0110_05 add */
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        pin_state = pinctrl_lookup_state(pin, "shub_int1_suspend");
+        gpio_free(gpio_no);  /* SHMDS_HUB_0110_05 add */
+        break;
+    default:
+        break;
+    }
+    
+    if(pin_state == NULL){
+        printk("[shub]shub_gpio_free: Null error(gpio %d)", gpio);
+        return -1;
+    }
+    
+    ret = pinctrl_select_state(pin, pin_state);
+    if(ret){
+        printk("[shub]shub_gpio_free: error(gpio %d, ret=%d)", gpio, ret);
+        return ret;
+    }
+#else
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        gpio_free(SHUB_GPIO_RST);
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        gpio_free(SHUB_GPIO_REMP);
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        gpio_free(SHUB_GPIO_INT0);
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        gpio_free(SHUB_GPIO_INT1);
+        break;
+    default:
+        break;
+    }
+#endif
+    return 0;
+}
+
+int shub_gpio_direction_output(int gpio, int data)
+{
+    int gpio_no;
+    
+    gpio_no = shub_get_gpio_no(gpio);
+    gpio_direction_output(gpio_no, data);
+    return 0;
+}
+
+int shub_gpio_direction_input(int gpio)
+{
+    int gpio_no;
+    
+    gpio_no = shub_get_gpio_no(gpio);
+    gpio_direction_input(gpio_no); /* SHMDS_HUB_0110_04 mod */
+    return 0;
+}
+
+int shub_gpio_set_value(int gpio, int data)
+{
+    int gpio_no;
+    
+    gpio_no = shub_get_gpio_no(gpio);
+    gpio_set_value(gpio_no, data);
+    return 0;
+}
+
+int shub_gpio_get_value(int gpio)
+{
+    int ret;
+    int gpio_no;
+    
+    gpio_no = shub_get_gpio_no(gpio);
+    ret = gpio_get_value(gpio_no);
+    return ret;
+}
+
+int shub_gpio_tlmm_config(int gpio, int data)
+{
+#ifdef SHUB_SW_PINCTRL
+    unsigned long config = PIN_CONFIG_BIAS_PULL_DOWN;
+
+    if(data == SHUB_GPIO_PULL_UP){
+        config = PIN_CONFIG_BIAS_PULL_UP;
+    }
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        pin_config_set("fd510000.pinctrl", "gp-93", config);
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        pin_config_set("fd510000.pinctrl", "gp-94", config);
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        pin_config_set("fd510000.pinctrl", "gp-75", config);
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        pin_config_set("fd510000.pinctrl", "gp-76", config);
+        break;
+    default:
+        break;
+    }
+#else
+    switch(gpio){
+    case SHUB_GPIO_PIN_RESET:
+        gpio_tlmm_config(GPIO_CFG(SHUB_GPIO_RST, 0, GPIO_CFG_INPUT, data, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+        break;
+    case SHUB_GPIO_PIN_BRMP:
+        gpio_tlmm_config(GPIO_CFG(SHUB_GPIO_REMP, 0, GPIO_CFG_INPUT, data, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+        break;
+    case SHUB_GPIO_PIN_INT0:
+        gpio_tlmm_config(GPIO_CFG(SHUB_GPIO_INT0, 0, GPIO_CFG_INPUT, data, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+        break;
+    case SHUB_GPIO_PIN_INT1:
+        gpio_tlmm_config(GPIO_CFG(SHUB_GPIO_INT1, 0, GPIO_CFG_INPUT, data, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+        break;
+    default:
+        break;
+    }
+#endif
+    return 0;
+}
+
+int shub_gpio_to_irq(int gpio)
+{
+    int gpio_no = 0;
+    int ret  = 0;
+    
+    gpio_no = shub_get_gpio_no(gpio);
+    ret = gpio_to_irq(gpio_no);
+    return ret;
+}
+/* SHMDS_HUB_0110_01 add E */
 

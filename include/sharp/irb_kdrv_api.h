@@ -1,6 +1,6 @@
 /* include/sharp/irb_kdrv_api.h (sharp IrDA driver)
  *
- * Copyright (C) 2011 - 2014 SHARP CORPORATION All rights reserved.
+ * Copyright (C) 2011 - 2015 SHARP CORPORATION All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and

@@ -375,10 +375,10 @@ void mmc_host_clk_hold(struct mmc_host *host)
 			if (host->clk_scaling.state == MMC_LOAD_LOW)
 				mmc_reset_clk_scale_stats(host);
 		} else {
-#endif /* CONFIG_KEEP_CLK_SCALING_PARAM_EMMC_CUST_SH */
-		mmc_reset_clk_scale_stats(host);
-#ifdef CONFIG_KEEP_CLK_SCALING_PARAM_EMMC_CUST_SH
+			mmc_reset_clk_scale_stats(host);
 		}
+#else /* CONFIG_KEEP_CLK_SCALING_PARAM_EMMC_CUST_SH */
+		mmc_reset_clk_scale_stats(host);
 #endif /* CONFIG_KEEP_CLK_SCALING_PARAM_EMMC_CUST_SH */
 		spin_lock_irqsave(&host->clk_lock, flags);
 		pr_debug("%s: ungated MCI clock\n", mmc_hostname(host));

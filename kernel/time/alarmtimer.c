@@ -26,6 +26,20 @@
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
 
+#ifdef CONFIG_SH_SLEEP_LOG
+#include <sharp/sh_sleeplog.h>
+#endif
+#ifdef CONFIG_SHSYS_CUST_DEBUG
+#include <linux/module.h>
+enum {
+   SH_DEBUG_ALARM_TRIGGERED = 1U << 0,
+};
+static int sh_debug_mask = 0;
+module_param_named(
+   sh_debug_mask, sh_debug_mask, int, S_IRUGO | S_IWUSR | S_IWGRP
+);
+#endif /* CONFIG_SHSYS_CUST_DEBUG */
+
 /**
  * struct alarm_base - Alarm timer bases
  * @lock:		Lock for syncrhonized access to the base
@@ -214,8 +228,24 @@ static enum hrtimer_restart alarmtimer_fired(struct hrtimer *timer)
 
 		alarm->state |= ALARMTIMER_STATE_CALLBACK;
 		spin_unlock_irqrestore(&base->lock, flags);
+#ifdef CONFIG_SHSYS_CUST
+		if (alarm->function){
+#ifdef CONFIG_SH_SLEEP_LOG
+			sh_count_mark_alarm(alarm->type, (int)alarm->function);
+#endif
+#ifdef CONFIG_SHSYS_CUST_DEBUG
+			if(sh_debug_mask == SH_DEBUG_ALARM_TRIGGERED){
+				pr_info("call alarm, type %d, func %pF \n",
+					alarm->type, alarm->function);
+			}
+#endif /*CONFIG_SHSYS_CUST_DEBUG*/
+			restart = alarm->function(alarm, base->gettime());
+		}
+#else
 		if (alarm->function)
-			restart = alarm->function(alarm, now);
+			restart = alarm->function(alarm, base->gettime());
+#endif /*CONFIG_SHSYS_CUST*/
+
 		spin_lock_irqsave(&base->lock, flags);
 		alarm->state &= ~ALARMTIMER_STATE_CALLBACK;
 
