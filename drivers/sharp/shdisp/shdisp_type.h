@@ -26,12 +26,6 @@
 /* TYPES                                                                     */
 /* ------------------------------------------------------------------------- */
 enum {
-    SHDISP_MAIN_DISP_OFF,
-    SHDISP_MAIN_DISP_ON,
-    NUM_SHDISP_MAIN_DISP_STATUS
-};
-
-enum {
     SHDISP_DRIVER_IS_NOT_INITIALIZED,
     SHDISP_DRIVER_IS_INITIALIZED,
     NUM_SHDISP_DRIVER_STATUS

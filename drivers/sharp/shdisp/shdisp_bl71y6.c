@@ -237,6 +237,7 @@ static int shdisp_bdic_IO_set_bit_reg(unsigned char reg, unsigned char val);
 static int shdisp_bdic_IO_clr_bit_reg(unsigned char reg, unsigned char val);
 static int shdisp_bdic_IO_msk_bit_reg(unsigned char reg, unsigned char val, unsigned char msk);
 static int shdisp_bdic_IO_bank_set(unsigned char val);
+static int shdisp_bdic_IO_chk_write_reg(unsigned char reg, unsigned char val);
 static int shdisp_bdic_IO_psals_write_reg(unsigned char reg, unsigned char val);
 static int shdisp_bdic_IO_psals_msk_bit_reg(unsigned char reg, unsigned char val, unsigned char mask);
 static int shdisp_bdic_IO_psals_read_reg(unsigned char reg, unsigned char *val);
@@ -320,6 +321,8 @@ static struct shdisp_photo_sensor_int_trigger sensor_int_trigger;
 #endif /* SHDISP_ALS_INT */
 
 static int shdisp_bdic_ado_for_brightness;
+
+#define SHDISP_BANK_RETRY (3)
 
 /* ------------------------------------------------------------------------- */
 /* FUNCTIONS                                                                 */
@@ -2043,7 +2046,7 @@ int shdisp_bdic_API_als_sensor_pow_ctl(int dev_type, int power_mode)
     }
 
 #ifdef SHDISP_ALS_INT
-    if ((dev_type == sensor_int_trigger.type) || (power_mode == SHDISP_PHOTO_SENSOR_DISABLE)) {
+    if ((dev_type == sensor_int_trigger.type) && (power_mode == SHDISP_PHOTO_SENSOR_DISABLE)) {
         memset(&sensor_int_trigger, 0x00, sizeof(struct shdisp_photo_sensor_int_trigger));
         shdisp_bdic_PD_REG_int_setting(&sensor_int_trigger);
 
@@ -3064,7 +3067,12 @@ static int shdisp_bdic_LD_PHOTO_SENSOR_get_lightinfo(struct shdisp_light_info *v
     }
     SHDISP_DEBUG("lux=%ld clear=%d ir=%d", lux, clear, ir);
     value->lux = lux;
-    value->clear_ir_rate = (((unsigned int)ir * 1000) / (unsigned int)clear + 5 ) / 10;
+    if (clear < 1) {
+        SHDISP_DEBUG("[caution]clear is zero");
+        value->clear_ir_rate = 0;
+    } else {
+        value->clear_ir_rate = (((unsigned int)ir * 1000) / (unsigned int)clear + 5 ) / 10;
+    }
     shdisp_bdic_IO_bank_set(0x00);
     shdisp_bdic_IO_read_reg(BDIC_REG_ADO_INDEX, &level);
     value->level = (unsigned short)(level & 0x1F);
@@ -3349,6 +3357,9 @@ static int shdisp_bdic_seq_regset(const shdisp_bdicRegSetting_t *regtable, int s
         switch (tbl->flg) {
         case SHDISP_BDIC_STR:
             ret = shdisp_bdic_IO_write_reg(tbl->addr, tbl->data);
+            break;
+        case SHDISP_BDIC_CHKWR:
+            ret = shdisp_bdic_IO_chk_write_reg(tbl->addr, tbl->data);
             break;
         case SHDISP_BDIC_SET:
             ret = shdisp_bdic_IO_set_bit_reg(tbl->addr, tbl->data);
@@ -5184,8 +5195,8 @@ static int shdisp_bdic_PD_psals_write_threshold(struct shdisp_prox_params *prox_
 static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *ado, unsigned short *clear, unsigned short *ir)
 {
     int ret, shift_tmp;
-    unsigned long ado0, ado1;
-    unsigned short als0, als1;
+    uint64_t ado0, ado1;
+    uint64_t als0, als1;
     unsigned short alpha, beta, gamma;
     unsigned char rval[(SENSOR_REG_D1_MSB + 1) - SENSOR_REG_D0_LSB];
     signed char range0, res;
@@ -5227,7 +5238,7 @@ static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *ado, unsigned short *c
     }
     als0 = (rval[1] << 8 | rval[0]);
     als1 = (rval[3] << 8 | rval[2]);
-    SHDISP_DEBUG("als1*16=%d, als0*15=%d", als1 * SHDISP_BDIC_RATIO_OF_ALS0, als0 * SHDISP_BDIC_RATIO_OF_ALS1);
+    SHDISP_DEBUG("als1*16=%lld, als0*15=%lld", als1 * SHDISP_BDIC_RATIO_OF_ALS0, als0 * SHDISP_BDIC_RATIO_OF_ALS1);
 
     SHDISP_BDIC_REGSET(shdisp_bdic_reg_ar_ctrl);
     shdisp_bdic_PD_i2c_throughmode_ctrl(false);
@@ -5240,9 +5251,10 @@ static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *ado, unsigned short *c
         if (gamma < 16) {
             ado0 = (((als0 * alpha) - (als1 * beta)) << gamma) >> 15;
         } else {
-            ado0 = (((als0 * alpha) - (als1 * beta)) << (32-gamma)) >> 15;
+            ado0 = (((als0 * alpha) - (als1 * beta)) >> (32 - gamma)) >> 15;
         }
-        SHDISP_DEBUG("ROUTE-1 als0=%04X, als1=%04X, alpha=%04X, gamma=%02x", als0, als1, alpha, gamma);
+        SHDISP_DEBUG("ROUTE-1 als0=%04llX, als1=%04llX, alpha=%04X, beta=%04X, gamma=%02x, ado0=%08llx",
+                                                        als0, als1, alpha, beta, gamma, ado0);
     } else {
         alpha = s_state_str.photo_sensor_adj.als_adjust[0].als_adj0;
         beta  = s_state_str.photo_sensor_adj.als_adjust[0].als_adj1;
@@ -5250,10 +5262,10 @@ static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *ado, unsigned short *c
         if (gamma < 16) {
             ado0 = (((als0 * alpha) - (als1 * beta)) << gamma) >> 15;
         } else {
-            ado0 = (((als0 * alpha) - (als1 * beta)) << (32-gamma)) >> 15;
+            ado0 = (((als0 * alpha) - (als1 * beta)) >> (32 - gamma)) >> 15;
         }
-        SHDISP_DEBUG("ROUTE-2 als0=%04X, als1=%04X, alpha=%04X, beta=%04X, gamma=%02x", als0, als1,
-                                                                                        alpha, beta, gamma);
+        SHDISP_DEBUG("ROUTE-2 als0=%04llX, als1=%04llX, alpha=%04X, beta=%04X, gamma=%02x, ado0=%08llx",
+                                                        als0, als1, alpha, beta, gamma, ado0);
     }
 
     if (res < 3) {
@@ -5276,10 +5288,10 @@ static int shdisp_bdic_PD_REG_ADO_get_opt(unsigned short *ado, unsigned short *c
         *ado = (unsigned short)ado1;
     }
     if (clear) {
-        *clear = als0;
+        *clear = (unsigned short)als0;
     }
     if (ir) {
-        *ir = als1;
+        *ir = (unsigned short)als1;
     }
 
     SHDISP_TRACE("out");
@@ -5722,6 +5734,38 @@ static int shdisp_bdic_IO_msk_bit_reg(unsigned char reg, unsigned char val, unsi
 
     ret = shdisp_SYS_API_bdic_i2c_mask_write(reg, val, msk);
     return ret;
+}
+
+/* ------------------------------------------------------------------------- */
+/* shdisp_bdic_IO_chk_write_reg                                              */
+/* ------------------------------------------------------------------------- */
+static int shdisp_bdic_IO_chk_write_reg(unsigned char reg, unsigned char val)
+{
+    int ret = SHDISP_RESULT_SUCCESS;
+    unsigned char read_val = 0;
+    int bank_retry = 0;
+
+    for (bank_retry = 0; bank_retry < SHDISP_BANK_RETRY; bank_retry++) {
+        ret = shdisp_SYS_API_bdic_i2c_write(reg, val);
+        if (ret != SHDISP_RESULT_SUCCESS) {
+            SHDISP_ERR("<RESULT_FAILURE> i2c_write.")
+            return ret;
+        }
+
+        ret = shdisp_SYS_API_bdic_i2c_dummy_read(reg, &read_val);
+        if (ret != SHDISP_RESULT_SUCCESS) {
+            SHDISP_ERR("<RESULT_FAILURE> i2c_read.")
+            return ret;
+        }
+
+        if (val == read_val) {
+            return SHDISP_RESULT_SUCCESS;
+        }
+        SHDISP_ERR("<BANK1_ERROR> addr:0x%02X, write_data:0x%02X, read_data:0x%02X, retry:%d", reg, val, read_val, bank_retry);
+    }
+
+    SHDISP_ERR("<RESULT_FAILURE> chk_write.")
+    return SHDISP_RESULT_FAILURE;
 }
 
 /* ------------------------------------------------------------------------- */

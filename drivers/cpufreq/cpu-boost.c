@@ -27,9 +27,8 @@
 #include <linux/time.h>
 
 #ifdef CONFIG_SHSYS_CUST
-#include <../../kernel/power/power.h>
-#include <linux/suspend.h>
-
+#include <sharp/shdisp_kerl.h>
+#include <../sharp/shdisp/shdisp_type.h>
 #endif /* CONFIG_SHSYS_CUST */
 
 struct cpu_sync {
@@ -260,16 +259,16 @@ static void do_input_boost(struct work_struct *work)
 #ifdef CONFIG_SHSYS_CUST
 static int is_ignorable_event(unsigned int type, unsigned int code)
 {
-	if (pm_autosleep_state() == PM_SUSPEND_MEM){
+	if (shdisp_api_get_main_disp_status() == SHDISP_MAIN_DISP_OFF) {
 		if(((type == EV_KEY)&&(code == KEY_POWER))   ||
            ((type == EV_SW)&&(code ==  SW_GRIP_00))  ||
            ((type == EV_KEY)&&(code ==  KEY_SWEEPON))||
            ((type == EV_ABS)&&(code ==  ABS_DISTANCE))){
-			pr_debug("start clock boosted by input event type = %d code = %d autosleep_state = %d\n",type,code,pm_autosleep_state());
+			pr_debug("start clock boosted by input event type = %d code = %d disp_status = %d\n", type, code, shdisp_api_get_main_disp_status());
 			return false;
 		}
 	}
-	pr_debug("ignore input event type = %d code = %d autosleep_state = %d\n",type,code,pm_autosleep_state());
+	pr_debug("ignore input event type = %d code = %d disp_status = %d\n", type, code, shdisp_api_get_main_disp_status());
 	return true;
 }
 #endif /* CONFIG_SHSYS_CUST */

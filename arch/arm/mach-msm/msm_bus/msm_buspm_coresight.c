@@ -109,6 +109,7 @@ int msmbus_coresight_init(struct platform_device *pdev)
 	}
 
 	drvdata = devm_kzalloc(dev, sizeof(*drvdata), GFP_KERNEL);
+	dev_info(dev, "info: removed buspm module from kernel space\n");
 	if (!drvdata) {
 		pr_err("coresight: Alloc for drvdata failed\n");
 		return -ENOMEM;
